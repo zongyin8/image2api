@@ -25,6 +25,8 @@ api_test_video.py       # hardcoded API key
 # ======================================================================
 # browser HAR captures contain real cookies/tokens
 *.har
+# stray source/backup archives
+*.zip
 # prebuilt binaries (backend is built from source now)
 /dist/
 # stray debug screenshots pasted into the repo root

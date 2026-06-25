@@ -218,11 +218,44 @@ server {
 ## 📦 Repository Layout
 
 ```
-frontend/            Frontend source (Vue 3)
-backend/             Backend source (Go, entry point at cmd/api)
-docker-compose.yml   Docker orchestration (Postgres/Redis/RustFS/backend/frontend/acme)
-install.sh           One-command deploy script
-.env.docker.example  Environment variable template
+backend/                       Backend source (Go)
+├── cmd/
+│   ├── api/                   Service entry point (main)
+│   └── marklabel/             Ops helper (mark accounts on demand)
+├── internal/
+│   ├── bootstrap/             App wiring, scheduled maintenance startup
+│   ├── config/                Env-var configuration loading
+│   ├── http/
+│   │   ├── handler/           HTTP handlers (v1-compatible API, admin, auth…)
+│   │   ├── middleware/        Auth / request-id middleware
+│   │   └── router/            Route registration
+│   ├── model/                 GORM data models
+│   ├── provider/              Upstream provider clients
+│   │   ├── adobe/             Adobe Firefly (tls-client fingerprint)
+│   │   ├── chatgpt/           OpenAI (incl. PoW / turnstile)
+│   │   ├── runway/            Runway video
+│   │   ├── leonardo/          Leonardo
+│   │   ├── krea/              Krea
+│   │   └── imagine/           Imagine.art
+│   ├── repo/                  Data-access layer (users / models / accounts / logs / CDK…)
+│   ├── service/               Business logic (scheduling, billing, account pools, keep-alive, maintenance)
+│   └── storage/               RustFS / S3 media storage
+├── Dockerfile                 Multi-stage build (compile source → slim runtime image)
+└── .env.example               Backend env-var template
+
+frontend/                      Frontend source (Vue 3 + Vite)
+├── src/
+│   ├── views/                 Pages (playground / accounts / models / logs / overview / users…)
+│   ├── components/            Reusable components (modals / selectors / lightbox…)
+│   ├── layouts/               Public / admin layouts
+│   ├── utils/                 Utility functions
+│   └── api.js · auth.js …     API client, auth, theme, credits, etc.
+├── Dockerfile                 Nginx static hosting + cert watcher
+└── default.conf.template      Nginx site template (reverse proxy + caching)
+
+docker-compose.yml             Docker orchestration (Postgres / Redis / RustFS / backend / frontend / acme)
+install.sh                     One-command deploy script (= docker compose up -d --build)
+.env.docker.example            Deployment env-var template
 ```
 
 ## 🗺️ Roadmap

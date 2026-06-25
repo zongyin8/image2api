@@ -218,11 +218,44 @@ server {
 ## 📦 仓库结构
 
 ```
-frontend/            前端源码(Vue 3)
-backend/             后端源码(Go,cmd/api 为入口)
-docker-compose.yml   Docker 编排(Postgres/Redis/RustFS/后端/前端/acme)
-install.sh           一键部署脚本
-.env.docker.example  环境变量模板
+backend/                       后端源码(Go)
+├── cmd/
+│   ├── api/                   服务入口(main)
+│   └── marklabel/             运维小工具(按需标记账号)
+├── internal/
+│   ├── bootstrap/             应用装配、定时维护任务启动
+│   ├── config/                环境变量配置加载
+│   ├── http/
+│   │   ├── handler/           HTTP 处理器(v1 兼容接口、后台、鉴权…)
+│   │   ├── middleware/        鉴权 / 请求 ID 等中间件
+│   │   └── router/            路由注册
+│   ├── model/                 GORM 数据模型
+│   ├── provider/              各上游供应商客户端
+│   │   ├── adobe/             Adobe Firefly(tls-client 指纹)
+│   │   ├── chatgpt/           OpenAI(含 PoW / turnstile)
+│   │   ├── runway/            Runway 视频
+│   │   ├── leonardo/          Leonardo
+│   │   ├── krea/              Krea
+│   │   └── imagine/           Imagine.art
+│   ├── repo/                  数据访问层(用户 / 模型 / 账号 / 日志 / CDK…)
+│   ├── service/              业务逻辑(生成调度、计费、账号池、保活、维护)
+│   └── storage/               RustFS / S3 媒体存储
+├── Dockerfile                 多阶段构建(源码编译 → 精简运行镜像)
+└── .env.example               后端环境变量模板
+
+frontend/                      前端源码(Vue 3 + Vite)
+├── src/
+│   ├── views/                 页面(画图台 / 账号 / 模型 / 日志 / 概览 / 用户…)
+│   ├── components/             复用组件(弹窗 / 选择器 / 灯箱…)
+│   ├── layouts/                公共 / 后台布局
+│   ├── utils/                  工具函数
+│   └── api.js · auth.js …      接口封装、鉴权、主题、积分等
+├── Dockerfile                 Nginx 静态托管 + 证书监听
+└── default.conf.template      Nginx 站点模板(反代 + 缓存策略)
+
+docker-compose.yml             Docker 编排(Postgres / Redis / RustFS / 后端 / 前端 / acme)
+install.sh                     一键部署脚本(= docker compose up -d --build)
+.env.docker.example            部署环境变量模板
 ```
 
 ## 🗺️ Roadmap
