@@ -300,6 +300,7 @@ func (c *Client) apiJSON(ctx context.Context, client tlsclient.HttpClient, token
 	}
 	switch {
 	case resp.StatusCode == 401 || resp.StatusCode == 403:
+		// Rate-limit (403) is treated as a dead account too, same as a 401.
 		return nil, fmt.Errorf("%w: %s %d %s", ErrAuth, path, resp.StatusCode, clip(raw, 200))
 	case resp.StatusCode == 429:
 		return nil, fmt.Errorf("%w: %s 429 %s", ErrQuotaExhausted, path, clip(raw, 200))

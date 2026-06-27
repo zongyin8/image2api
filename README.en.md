@@ -2,7 +2,7 @@
 
 <h1>image2api</h1>
 
-**Multi-provider AI image / video generation gateway — one OpenAI-compatible API, six platforms aggregated, a ready-to-run operations system**
+**Multi-provider AI image / video generation gateway — one OpenAI-compatible API, seven platforms aggregated, a ready-to-run operations system**
 
 <sub>Live instance (brand): [Vivid AI · vividai.run](https://vividai.run)</sub>
 
@@ -15,7 +15,7 @@
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](#-deployment)
 [![OpenAI Compatible](https://img.shields.io/badge/OpenAI-compatible-412991?logo=openai&logoColor=white)](#-openai-compatible-api)
 [![HTTPS](https://img.shields.io/badge/HTTPS-acme.sh%20auto--issue-success)](#option-1-docker-one-command-recommended)
-[![Providers](https://img.shields.io/badge/providers-6-orange)](#-supported-models--providers)
+[![Providers](https://img.shields.io/badge/providers-7-orange)](#-supported-models--providers)
 [![Self-hosted](https://img.shields.io/badge/self--hosted-yes-success)](#-deployment)
 [![License](https://img.shields.io/badge/license-MIT-blue)](#-license)
 
@@ -45,13 +45,13 @@
 
 ## ✨ Overview
 
-**image2api** wraps the image / video capabilities of Adobe Firefly, OpenAI, Runway, Leonardo, Krea and Imagine into **a single OpenAI-compatible API**. Behind it, multi-account pools are scheduled automatically — out of quota → switch account, auth expired → refresh or kill, transient errors → retry, tokens proactively renewed before they expire — to deliver a stable service.
+**image2api** wraps the image / video capabilities of Adobe Firefly, OpenAI, Runway, Grok, Leonardo, Krea and Imagine into **a single OpenAI-compatible API**. Behind it, multi-account pools are scheduled automatically — out of quota → switch account, auth expired → refresh or kill, transient errors → retry, tokens proactively renewed before they expire — to deliver a stable service.
 
 It's more than an API proxy: it ships with **credit billing, CDK top-ups, referral rewards, a user system, an admin console, and a modern generation frontend**, so a single command turns it into a fully operational AI generation site — the author's live instance **[Vivid AI · vividai.run](https://vividai.run)** (brand) is built on this project.
 
 > 💡 Both frontend and backend are **fully open-source** (MIT) — Go + Vue 3, free to fork and self-host.
 
-**At a glance** 🔌 OpenAI-compatible · 🤖 6 platforms, 10+ models · 🔁 auto failover / token keep-alive · 💳 credits + agent pricing · 🎨 generation frontend + admin console · 🐳 one-command deploy + auto HTTPS
+**At a glance** 🔌 OpenAI-compatible · 🤖 7 platforms, 10+ models · 🔁 auto failover / token keep-alive · 💳 credits + agent pricing · 🎨 generation frontend + admin console · 🐳 one-command deploy + auto HTTPS
 
 ## 🖼️ Screenshots
 
@@ -66,7 +66,7 @@ It's more than an API proxy: it ships with **credit billing, CDK top-ups, referr
 #### 🎨 Generation
 - Images + videos in one place, with **image-to-image / reference frames** (first frame, last frame, style reference)
 - Multiple resolutions (1K / 2K / 4K), aspect ratios and video durations — configured and priced per model
-- 6 providers, 10+ models, **enable / disable / re-price from the admin console**, no code changes
+- 7 providers, 10+ models, **enable / disable / re-price from the admin console**, no code changes
 
 #### 🔌 OpenAI Compatible
 - Text-to-image `/v1/images/generations` · image-to-image `/v1/images/edits` (multipart ref upload) · video `/v1/videos` (Sora-style async: create → poll → `/content`) · `/v1/models`
@@ -103,9 +103,10 @@ It's more than an API proxy: it ships with **credit billing, CDK top-ups, referr
 
 | Provider | Models (examples) | Type |
 |---|---|---|
-| **Adobe Firefly** | firefly-image-5 · firefly-gpt-image-2 · nano-banana-2 · flux-kontext-max · firefly-video · firefly-ray · gemini-veo31 | Image / Video |
+| **Adobe Firefly** | firefly-image-5 · firefly-gpt-image-2 · flux-kontext-max · firefly-video · firefly-ray · gemini-veo31 | Image / Video |
 | **OpenAI** | gpt-image-2 | Image |
-| **Runway** | runway-gen4-turbo | Video |
+| **Runway** | runway-gen4-turbo · nano-banana-2 (Nano Banana 2) | Video / Image |
+| **Grok (grok.com)** | grok-video (imagine text/image-to-video) | Video |
 | **Leonardo.ai** | seedream-4.5 | Image |
 | **Krea.ai** | flux-klein-2 | Image |
 | **Imagine.art** | imagine-1.5 · imagine-1.5pro | Image |
@@ -233,7 +234,8 @@ backend/                       Backend source (Go)
 │   ├── provider/              Upstream provider clients
 │   │   ├── adobe/             Adobe Firefly (tls-client fingerprint)
 │   │   ├── chatgpt/           OpenAI (incl. PoW / turnstile)
-│   │   ├── runway/            Runway video
+│   │   ├── runway/            Runway video + Nano Banana image
+│   │   ├── grok/              Grok (grok.com, spoofed statsig, video)
 │   │   ├── leonardo/          Leonardo
 │   │   ├── krea/              Krea
 │   │   └── imagine/           Imagine.art

@@ -342,6 +342,11 @@ func (s *AdminReadService) Providers(ctx context.Context) ([]map[string]any, err
 	}{
 		{Name: "chatgpt", Pool: "chatgpt", Type: "openai"},
 		{Name: "adobe", Pool: "adobe", Type: "adobe"},
+		{Name: "runway", Pool: "runway", Type: "runway"},
+		{Name: "leonardo", Pool: "leonardo", Type: "leonardo"},
+		{Name: "krea", Pool: "krea", Type: "krea"},
+		{Name: "imagine", Pool: "imagine", Type: "imagine"},
+		{Name: "grok", Pool: "grok", Type: "grok"},
 	}
 	out := make([]map[string]any, 0, len(providers))
 	for _, item := range providers {

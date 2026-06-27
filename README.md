@@ -2,7 +2,7 @@
 
 <h1>image2api</h1>
 
-**多供应商 AI 生图 / 生视频网关 —— 一套 OpenAI 兼容 API,聚合六大平台,开箱即用的运营系统**
+**多供应商 AI 生图 / 生视频网关 —— 一套 OpenAI 兼容 API,聚合七大平台,开箱即用的运营系统**
 
 <sub>线上实例(品牌):[Vivid AI · vividai.run](https://vividai.run)</sub>
 
@@ -15,7 +15,7 @@
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](#-部署)
 [![OpenAI Compatible](https://img.shields.io/badge/OpenAI-compatible-412991?logo=openai&logoColor=white)](#-openai-兼容-api)
 [![HTTPS](https://img.shields.io/badge/HTTPS-acme.sh%20自动签发-success)](#方式一docker-一键推荐)
-[![Providers](https://img.shields.io/badge/供应商-6%20平台-orange)](#-支持的模型--供应商)
+[![Providers](https://img.shields.io/badge/供应商-7%20平台-orange)](#-支持的模型--供应商)
 [![Self-hosted](https://img.shields.io/badge/self--hosted-yes-success)](#-部署)
 [![License](https://img.shields.io/badge/license-MIT-blue)](#-license)
 
@@ -45,13 +45,13 @@
 
 ## ✨ 简介
 
-**image2api** 把 Adobe Firefly、OpenAI、Runway、Leonardo、Krea、Imagine 等平台的图像 / 视频能力,统一封装成**一套 OpenAI 兼容的 API**;背后用多账号池自动调度 —— 额度耗尽自动换号、认证失效自动刷新或判死、临时错误自动重试、token 到期前主动续期 —— 对外提供稳定服务。
+**image2api** 把 Adobe Firefly、OpenAI、Runway、Grok、Leonardo、Krea、Imagine 等平台的图像 / 视频能力,统一封装成**一套 OpenAI 兼容的 API**;背后用多账号池自动调度 —— 额度耗尽自动换号、认证失效自动刷新或判死、临时错误自动重试、token 到期前主动续期 —— 对外提供稳定服务。
 
 它不只是 API 代理:自带**积分计费、CDK 充值、邀请奖励、用户体系、管理后台、现代化画图前端**,一条命令即可跑成一个对外运营的 AI 生成站点 —— 作者的线上实例 **[Vivid AI · vividai.run](https://vividai.run)**(品牌)即基于本项目搭建。
 
 > 💡 前后端**完全开源**(MIT),Go + Vue 3,可自由二开 / 自部署。
 
-**一句话亮点** 🔌 OpenAI 兼容 · 🤖 6 平台十余模型 · 🔁 自动换号 / Token 保活 · 💳 积分 + 代理价计费 · 🎨 画图前端 + 管理后台 · 🐳 一键部署 + 自动 HTTPS
+**一句话亮点** 🔌 OpenAI 兼容 · 🤖 7 平台十余模型 · 🔁 自动换号 / Token 保活 · 💳 积分 + 代理价计费 · 🎨 画图前端 + 管理后台 · 🐳 一键部署 + 自动 HTTPS
 
 ## 🖼️ 界面预览
 
@@ -66,7 +66,7 @@
 #### 🎨 生成能力
 - 生图 + 生视频一站式,支持**图生图 / 参考图**(首帧、末帧、风格参考)
 - 多分辨率(1K / 2K / 4K)、多宽高比、视频多时长,按模型独立配置与定价
-- 6 大供应商、十余模型,后台**动态启用 / 下架 / 改价**,无需改代码
+- 7 大供应商、十余模型,后台**动态启用 / 下架 / 改价**,无需改代码
 
 #### 🔌 OpenAI 兼容
 - 文生图 `/v1/images/generations` · 图生图 `/v1/images/edits`(multipart 上传参考图) · 视频 `/v1/videos`(Sora 式异步:创建→轮询→`/content` 下载) · `/v1/models`
@@ -103,9 +103,10 @@
 
 | 供应商 | 模型(示例) | 类型 |
 |---|---|---|
-| **Adobe Firefly** | firefly-image-5 · firefly-gpt-image-2 · nano-banana-2 · flux-kontext-max · firefly-video · firefly-ray · gemini-veo31 | 图像 / 视频 |
+| **Adobe Firefly** | firefly-image-5 · firefly-gpt-image-2 · flux-kontext-max · firefly-video · firefly-ray · gemini-veo31 | 图像 / 视频 |
 | **OpenAI** | gpt-image-2 | 图像 |
-| **Runway** | runway-gen4-turbo | 视频 |
+| **Runway** | runway-gen4-turbo · nano-banana-2(Nano Banana 2) | 视频 / 图像 |
+| **Grok（grok.com）** | grok-video（imagine 文生 / 图生视频) | 视频 |
 | **Leonardo.ai** | seedream-4.5 | 图像 |
 | **Krea.ai** | flux-klein-2 | 图像 |
 | **Imagine.art** | imagine-1.5 · imagine-1.5pro | 图像 |
@@ -233,7 +234,8 @@ backend/                       后端源码(Go)
 │   ├── provider/              各上游供应商客户端
 │   │   ├── adobe/             Adobe Firefly(tls-client 指纹)
 │   │   ├── chatgpt/           OpenAI(含 PoW / turnstile)
-│   │   ├── runway/            Runway 视频
+│   │   ├── runway/            Runway 视频 + Nano Banana 图像
+│   │   ├── grok/              Grok(grok.com,statsig 伪造,视频)
 │   │   ├── leonardo/          Leonardo
 │   │   ├── krea/              Krea
 │   │   └── imagine/           Imagine.art

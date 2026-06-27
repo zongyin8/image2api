@@ -21,7 +21,8 @@ const detected = computed(() => {
   const leonardo = items.filter((x) => x.type === 'leonardo').length
   const krea = items.filter((x) => x.type === 'krea').length
   const imagine = items.filter((x) => x.type === 'imagine').length
-  return { total: items.length, openai, adobe, runway, leonardo, krea, imagine }
+  const grok = items.filter((x) => x.type === 'grok').length
+  return { total: items.length, openai, adobe, runway, leonardo, krea, imagine, grok }
 })
 
 function setStatus(text, err = false) {
@@ -44,6 +45,8 @@ async function doSmartImport() {
     try {
       const r = it.type === 'openai'
         ? await api('/tokens/import-chatgpt-token', jsonBody('POST', { access_token: it.value }))
+        : it.type === 'grok'
+          ? await api('/tokens/import-grok-token', jsonBody('POST', { access_token: it.value }))
         : it.type === 'runway'
           ? await api('/tokens/import-runway-token', jsonBody('POST', { access_token: it.value }))
           : it.type === 'leonardo'
@@ -94,6 +97,7 @@ async function doSmartImport() {
           <strong class="text-slate-700">Leonardo Cookie</strong>(含 better-auth)、
           <strong class="text-slate-700">Krea Cookie</strong>(含 sb-superb-auth)、
           <strong class="text-slate-700">Imagine Token</strong>(<code class="px-1 bg-slate-100 rounded">{"token","refreshToken","email","parentId"}</code>)、
+          <strong class="text-slate-700">Grok SSO</strong>(grok.com 的 <code class="px-1 bg-slate-100 rounded">sso</code> 值,仅含 session_id,自动与 ChatGPT/Runway 区分)、
           <strong class="text-slate-700">多个 JWT</strong>(换行分隔)。
           全粘进来即可，无需任何前缀。
         </p>
@@ -120,6 +124,9 @@ async function doSmartImport() {
             </span>
             <span v-if="detected.imagine" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-teal-700 bg-teal-50 ring-1 ring-teal-200">
               Imagine · <span class="tabular-nums">{{ detected.imagine }}</span>
+            </span>
+            <span v-if="detected.grok" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-slate-700 bg-slate-100 ring-1 ring-slate-300">
+              Grok · <span class="tabular-nums">{{ detected.grok }}</span>
             </span>
           </template>
           <span v-else class="text-rose-600">未识别到任何 Cookie 或 JWT</span>

@@ -108,6 +108,7 @@ func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.
 		authed.POST("/tokens/import-leonardo-cookie", handlers.ProviderAdmin.ImportLeonardoCookie)
 		authed.POST("/tokens/import-krea-cookie", handlers.ProviderAdmin.ImportKreaCookie)
 		authed.POST("/tokens/import-imagine-token", handlers.ProviderAdmin.ImportImagineToken)
+		authed.POST("/tokens/import-grok-token", handlers.ProviderAdmin.ImportGrokToken)
 		authed.POST("/tokens/delete-bulk", handlers.ProviderAdmin.TokenDeleteBulk)
 		authed.PATCH("/tokens/:pool/:id", handlers.ProviderAdmin.TokenUpdate)
 		authed.DELETE("/tokens/:pool/:id", handlers.ProviderAdmin.TokenDelete)

@@ -102,6 +102,36 @@ func (h *ProviderAdminHandler) ImportRunwayToken(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true, "id": item.ID, "status": item.Status, "pending": item.Status == "pending"})
 }
 
+func (h *ProviderAdminHandler) ImportGrokToken(c *gin.Context) {
+	var body struct {
+		AccessToken string `json:"access_token"`
+		Value       string `json:"value"`
+		SSO         string `json:"sso"`
+		Name        string `json:"name"`
+		ID          string `json:"id"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "invalid request body"})
+		return
+	}
+	token := body.AccessToken
+	for _, v := range []string{body.Value, body.SSO} {
+		if token == "" {
+			token = v
+		}
+	}
+	name := body.Name
+	if name == "" {
+		name = body.ID
+	}
+	item, err := h.tokens.ImportGrokToken(c.Request.Context(), token, name)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "id": item.ID, "status": item.Status, "pending": item.Status == "pending"})
+}
+
 func (h *ProviderAdminHandler) ImportKreaCookie(c *gin.Context) {
 	var body struct {
 		Cookie string `json:"cookie"`

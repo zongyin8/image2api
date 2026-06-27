@@ -12,6 +12,7 @@ import (
 	"backend/internal/model"
 	"backend/internal/provider/adobe"
 	"backend/internal/provider/chatgpt"
+	"backend/internal/provider/grok"
 	"backend/internal/provider/imagine"
 	"backend/internal/provider/krea"
 	"backend/internal/provider/leonardo"
@@ -108,14 +109,15 @@ func NewApp(ctx context.Context) (*App, error) {
 	leonardoClient := leonardo.NewClient("")
 	kreaClient := krea.NewClient("")
 	imagineClient := imagine.NewClient("")
-	v1Svc := service.NewV1Service(cfg, modelRepo, userRepo, eventRepo, tokenRepo, siteRepo, adobeClient, chatGPTClient, runwayClient, leonardoClient, kreaClient, imagineClient, rustfsClient)
+	grokClient := grok.NewClient("")
+	v1Svc := service.NewV1Service(cfg, modelRepo, userRepo, eventRepo, tokenRepo, siteRepo, adobeClient, chatGPTClient, runwayClient, leonardoClient, kreaClient, imagineClient, grokClient, rustfsClient)
 	siteSvc := service.NewSiteService(siteRepo, cfg.AppTitle)
 	showcaseSvc := service.NewShowcaseService(showcaseRepo)
 	adminReadSvc := service.NewAdminReadService(cfg, userRepo, modelRepo, eventRepo, siteRepo, tokenRepo, cdkRepo, rustfsClient)
 	adminWriteSvc := service.NewAdminWriteService(userRepo, showcaseRepo, modelRepo, eventRepo, apiKeyRepo)
 	cdkSvc := service.NewCDKService(cdkRepo, userRepo)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo)
-	tokenSvc := service.NewTokenService(tokenRepo, refreshRepo, eventRepo, siteRepo, adobeClient, chatGPTClient, runwayClient, leonardoClient, kreaClient, imagineClient)
+	tokenSvc := service.NewTokenService(tokenRepo, refreshRepo, eventRepo, siteRepo, adobeClient, chatGPTClient, runwayClient, leonardoClient, kreaClient, imagineClient, grokClient)
 	refreshSvc := service.NewRefreshProfileService(refreshRepo, tokenRepo, adobeClient)
 	// Enable refresh-then-retry on a mid-request Adobe 401 (re-mint access token
 	// from the cookie). Wired post-construction to avoid a ctor init cycle.

@@ -35,6 +35,7 @@ const stats = computed(() => {
     total: rows.value.length,
     openai: by('openai'), adobe: by('adobe'), runway: by('runway'),
     leonardo: by('leonardo'), krea: by('krea'), imagine: by('imagine'),
+    grok: by('grok'),
   }
 })
 
@@ -135,7 +136,7 @@ async function reconcile() {
   // probed here — the pending poll just reads the store until the worker writes
   // their quota/email. OLD accounts (active) get a real live /quota probe for
   // up-to-date remaining + refresh time.
-  const quotaRows = visible.filter((r) => !r.pending && r.status === 'active' && (r.type === 'openai' || r.type === 'adobe' || r.type === 'runway' || r.type === 'leonardo' || r.type === 'krea' || r.type === 'imagine'))
+  const quotaRows = visible.filter((r) => !r.pending && r.status === 'active' && (r.type === 'openai' || r.type === 'adobe' || r.type === 'runway' || r.type === 'leonardo' || r.type === 'krea' || r.type === 'imagine' || r.type === 'grok'))
   const adobeNeedEmail = visible.filter((r) => !r.pending && r.type === 'adobe' && !r.email)
   const total = quotaRows.length + adobeNeedEmail.length
   if (total === 0) { quotaStatus.value = ''; return }
@@ -296,7 +297,7 @@ onMounted(loadAccounts)
         <div class="text-2xl font-semibold mt-1 tabular-nums">{{ stats.total }}</div>
         <div class="text-[10px] text-white/35 mt-0.5">成功/失败/限额</div>
       </div>
-      <div v-for="t in [['openai','OpenAI','text-emerald-300/80'],['adobe','Adobe','text-rose-300/80'],['runway','Runway','text-violet-300/80'],['leonardo','Leonardo','text-amber-300/80'],['krea','Krea','text-sky-300/80'],['imagine','Imagine','text-teal-300/80']]"
+      <div v-for="t in [['openai','OpenAI','text-emerald-300/80'],['adobe','Adobe','text-rose-300/80'],['runway','Runway','text-violet-300/80'],['leonardo','Leonardo','text-amber-300/80'],['krea','Krea','text-sky-300/80'],['imagine','Imagine','text-teal-300/80'],['grok','Grok','text-slate-300/80']]"
            :key="t[0]" class="card p-4">
         <div class="text-[11px] uppercase tracking-wider" :class="t[2]">{{ t[1] }}</div>
         <div class="text-2xl font-semibold mt-1 tabular-nums">
@@ -327,6 +328,9 @@ onMounted(loadAccounts)
         </button>
         <button @click="setFilter(() => typeFilter = 'imagine')" class="fp" :class="typeFilter === 'imagine' && 'fp-teal'">
           <span class="w-1.5 h-1.5 rounded-full bg-teal-400"></span>Imagine
+        </button>
+        <button @click="setFilter(() => typeFilter = 'grok')" class="fp" :class="typeFilter === 'grok' && 'fp-on'">
+          <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>Grok
         </button>
       </div>
       <div class="w-px h-5 bg-white/10"></div>
@@ -436,9 +440,9 @@ onMounted(loadAccounts)
             <td class="px-3 py-3.5 align-middle text-right text-sm tabular-nums whitespace-nowrap">
               <!-- quota column: 数字 / —  (never "未知"/"失败"/"检测中") -->
               <!-- remaining === -1 is the provider "unlimited" sentinel → show — not a scary red -1 -->
-              <span v-if="(a.type === 'openai' || a.type === 'runway' || a.type === 'leonardo' || a.type === 'krea' || a.type === 'imagine') && a.remaining != null && a.remaining !== -1"
+              <span v-if="(a.type === 'openai' || a.type === 'runway' || a.type === 'leonardo' || a.type === 'krea' || a.type === 'imagine' || a.type === 'grok') && a.remaining != null && a.remaining !== -1"
                     class="font-mono font-semibold"
-                    :class="a.remaining > 0 ? 'text-emerald-300' : 'text-rose-300'">{{ a.remaining }}</span>
+                    :class="a.remaining > 0 ? 'text-emerald-300' : 'text-rose-300'">{{ a.remaining }}{{ a.type === 'grok' ? '%' : '' }}</span>
               <span v-else class="text-white/25" :title="a._quotaError || ''">—</span>
             </td>
             <!-- reset_after -->

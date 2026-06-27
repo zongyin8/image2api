@@ -18,6 +18,7 @@ import (
 	"backend/internal/provider/imagine"
 	"backend/internal/provider/krea"
 	"backend/internal/provider/leonardo"
+	"backend/internal/provider/grok"
 	"backend/internal/provider/runway"
 	"backend/internal/repo"
 
@@ -32,6 +33,7 @@ var validTokenPools = map[string]string{
 	"leonardo": "leonardo",
 	"krea":     "krea",
 	"imagine":  "imagine",
+	"grok":     "grok",
 }
 
 type TokenService struct {
@@ -45,6 +47,7 @@ type TokenService struct {
 	leonardo *leonardo.Client
 	krea     *krea.Client
 	imagine  *imagine.Client
+	grok     *grok.Client
 	// sem caps concurrent background pending-probe goroutines (mirrors Python's
 	// 10-worker _quota_check_pool) so a big paste doesn't fire hundreds of
 	// simultaneous upstream requests.
@@ -54,7 +57,7 @@ type TokenService struct {
 	kreaActivating atomic.Bool
 }
 
-func NewTokenService(tokens *repo.TokenRepository, refresh *repo.RefreshProfileRepository, events *repo.EventRepository, settings *repo.SiteSettingRepository, adobeClient *adobe.Client, chatGPTClient *chatgpt.Client, runwayClient *runway.Client, leonardoClient *leonardo.Client, kreaClient *krea.Client, imagineClient *imagine.Client) *TokenService {
+func NewTokenService(tokens *repo.TokenRepository, refresh *repo.RefreshProfileRepository, events *repo.EventRepository, settings *repo.SiteSettingRepository, adobeClient *adobe.Client, chatGPTClient *chatgpt.Client, runwayClient *runway.Client, leonardoClient *leonardo.Client, kreaClient *krea.Client, imagineClient *imagine.Client, grokClient *grok.Client) *TokenService {
 	return &TokenService{
 		tokens:   tokens,
 		refresh:  refresh,
@@ -66,6 +69,7 @@ func NewTokenService(tokens *repo.TokenRepository, refresh *repo.RefreshProfileR
 		leonardo: leonardoClient,
 		krea:     kreaClient,
 		imagine:  imagineClient,
+		grok:     grokClient,
 		sem:      make(chan struct{}, 10),
 	}
 }
@@ -90,6 +94,9 @@ func (s *TokenService) applyProxy(ctx context.Context) {
 	}
 	if s.imagine != nil {
 		s.imagine.SetProxy(proxy)
+	}
+	if s.grok != nil {
+		s.grok.SetProxy(proxy)
 	}
 }
 
@@ -840,6 +847,106 @@ func (s *TokenService) checkPendingRunway(tokenID, accessToken string) {
 	s.finishPending(ctx, "runway", tokenID, "active", false, quotaMeta)
 }
 
+// ImportGrokToken lands a Grok website "sso" cookie (a JWT carrying only a
+// session_id) as a pending account and probes its credit balance off-thread.
+// Identity is the session id (grok sso has no email/exp claim). No refresh: a
+// dead session just dies (失效就失效).
+func (s *TokenService) ImportGrokToken(ctx context.Context, ssoToken, tokenID string) (*model.TokenAccount, error) {
+	ssoToken = strings.TrimSpace(strings.TrimPrefix(ssoToken, "Bearer "))
+	ssoToken = strings.TrimPrefix(ssoToken, "sso=")
+	if ssoToken == "" {
+		return nil, errors.New("sso token required")
+	}
+	if !grok.IsGrokToken(ssoToken) {
+		return nil, errors.New("not a grok sso token")
+	}
+	sid := grok.SessionIDFromToken(ssoToken)
+	// Resolve the real account email up front (GET /api/auth/session) for dedup +
+	// display — the sso session_id rotates per login, so email is the stable id.
+	email := ""
+	if s.grok != nil {
+		s.applyProxy(ctx)
+		if e, _, ferr := s.grok.FetchSession(ctx, ssoToken); ferr == nil {
+			email = e
+		}
+	}
+	idKey := email
+	if idKey == "" {
+		idKey = sid
+	}
+	// Identity is (pool, email): reuse the row for this account, else mint.
+	if existing, _ := s.tokens.GetByPoolEmail(ctx, "grok", idKey); existing != nil {
+		tokenID = existing.ID
+	} else if idKey != "" || tokenID == "" {
+		tokenID = newTokenID("grok")
+	}
+	meta := datatypes.JSONMap{"pending_check": true}
+	if sid != "" {
+		meta["session_id"] = sid
+	}
+	item, err := s.createToken(ctx, "grok", tokenID, ssoToken, "pending", meta)
+	if err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			if item, err = s.tokens.Update(ctx, "grok", tokenID, map[string]any{
+				"value": ssoToken, "status": "pending", "meta": meta,
+			}); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, err
+		}
+	}
+	if idKey != "" {
+		if updated, uerr := s.tokens.Update(ctx, "grok", tokenID, map[string]any{"account_email": idKey}); uerr == nil {
+			item = updated
+		}
+	}
+	go s.checkPendingGrok(tokenID, ssoToken)
+	return item, nil
+}
+
+func (s *TokenService) checkPendingGrok(tokenID, ssoToken string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("token import: grok pending check panicked for %s: %v", tokenID, r)
+		}
+	}()
+	s.sem <- struct{}{}
+	defer func() { <-s.sem }()
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	if s.grok == nil {
+		s.finishPending(ctx, "grok", tokenID, "active", false, nil)
+		return
+	}
+	s.applyProxy(ctx)
+	data, err := s.grok.FetchCreditsBalance(ctx, ssoToken)
+	if err != nil {
+		if errors.Is(err, grok.ErrAuth) {
+			s.finishPending(ctx, "grok", tokenID, "disabled", true, nil)
+			return
+		}
+		s.finishPending(ctx, "grok", tokenID, "active", false, nil)
+		return
+	}
+	quotaMeta := map[string]any{}
+	if rem, ok := data["remaining"].(int); ok {
+		quotaMeta["cached_quota_remaining"] = rem
+		quotaMeta["cached_quota_at"] = int(time.Now().Unix())
+	}
+	if used, ok := data["used"].(int); ok {
+		quotaMeta["cached_quota_used"] = used
+	}
+	if total, ok := data["total"].(int); ok {
+		quotaMeta["cached_quota_total"] = total
+	}
+	if reset := strings.TrimSpace(stringValue(data["reset_after"])); reset != "" {
+		_, _ = s.tokens.Update(ctx, "grok", tokenID, map[string]any{"cached_quota_reset_after": reset})
+	}
+	s.finishPending(ctx, "grok", tokenID, "active", false, quotaMeta)
+}
+
 // finishPending writes the terminal status/dead flag and clears the pending_check
 // marker (merging any cached quota) for a background import probe.
 func (s *TokenService) finishPending(ctx context.Context, pool, id, status string, dead bool, quotaMeta map[string]any) {
@@ -1224,13 +1331,10 @@ func (s *TokenService) Quota(ctx context.Context, pool, id string) (map[string]a
 		meta := cloneJSONMap(item.Meta)
 		meta["cached_quota_at"] = int(time.Now().Unix())
 		if remaining, ok := data["remaining"].(int); ok {
+			// Refresh only updates the displayed balance number — it never flips
+			// status. Out-of-credits is judged at generation time (dead/401), so a
+			// refresh can't sink a runway account into a revivable "quota" state.
 			meta["cached_quota_remaining"] = remaining
-			// Refreshing in account management: an account below the credit floor
-			// is sunk into "限额" (quota) so it stops being scheduled. Mark-down
-			// only — recovery is a separate (unwritten) path.
-			if remaining < runwayMinCredits && item.Status == "active" {
-				patch["status"] = "quota"
-			}
 		}
 		if used, ok := data["used"].(int); ok {
 			meta["cached_quota_used"] = used
@@ -1256,12 +1360,58 @@ func (s *TokenService) Quota(ctx context.Context, pool, id string) (map[string]a
 			"error":           data["error"],
 		}, nil
 	}
+	if poolToType(item.Pool) == "grok" && s.grok != nil {
+		data, err := s.grok.FetchCreditsBalance(ctx, item.Value)
+		if err != nil {
+			if errors.Is(err, grok.ErrAuth) {
+				_, _ = s.tokens.Update(ctx, item.Pool, item.ID, map[string]any{
+					"status": "disabled",
+					"dead":   true,
+					"fails":  gorm.Expr("fails + 1"),
+				})
+			}
+			return nil, err
+		}
+		patch := map[string]any{}
+		meta := cloneJSONMap(item.Meta)
+		meta["cached_quota_at"] = int(time.Now().Unix())
+		if remaining, ok := data["remaining"].(int); ok {
+			// Refresh only updates the displayed credit number; never flips status.
+			// Out-of-credits is judged at generation time (dead/401, no renewal).
+			meta["cached_quota_remaining"] = remaining
+		}
+		if used, ok := data["used"].(int); ok {
+			meta["cached_quota_used"] = used
+		}
+		if total, ok := data["total"].(int); ok {
+			meta["cached_quota_total"] = total
+		}
+		patch["meta"] = meta
+		if reset := strings.TrimSpace(stringValue(data["reset_after"])); reset != "" {
+			patch["cached_quota_reset_after"] = reset
+			item.CachedQuotaResetAfter = reset
+		}
+		if updated, updateErr := s.tokens.Update(ctx, item.Pool, item.ID, patch); updateErr == nil {
+			item = updated
+		}
+		return map[string]any{
+			"supported":       true,
+			"remaining":       data["remaining"],
+			"used":            data["used"],
+			"total":           data["total"],
+			"reset_after":     emptyToNil(item.CachedQuotaResetAfter),
+			"quota_cached_at": meta["cached_quota_at"],
+			"unchanged":       false,
+			"unknown":         boolValueWithDefault(data["unknown"], false),
+			"error":           data["error"],
+		}, nil
+	}
 	remaining, hasRemaining := jsonMapInt(item.Meta, "cached_quota_remaining")
 	quotaAt, _ := jsonMapInt(item.Meta, "cached_quota_at")
 	typeLabel := poolToType(item.Pool)
 	return map[string]any{
-		"supported":       typeLabel == "openai" || typeLabel == "adobe" || typeLabel == "runway",
-		"remaining":       valueOrNil((typeLabel == "openai" || typeLabel == "runway") && hasRemaining, remaining),
+		"supported":       typeLabel == "openai" || typeLabel == "adobe" || typeLabel == "runway" || typeLabel == "grok",
+		"remaining":       valueOrNil((typeLabel == "openai" || typeLabel == "runway" || typeLabel == "grok") && hasRemaining, remaining),
 		"total":           nil,
 		"reset_after":     emptyToNil(item.CachedQuotaResetAfter),
 		"quota_cached_at": valueOrNil(quotaAt != 0, quotaAt),
@@ -1372,7 +1522,7 @@ func accountRow(item model.TokenAccount, inFlight int64) map[string]any {
 	if item.Meta != nil {
 		teamID = strings.TrimSpace(stringValue(item.Meta["team_id"]))
 	}
-	hasQuota := typeLabel == "openai" || typeLabel == "adobe" || typeLabel == "runway" || typeLabel == "leonardo" || typeLabel == "krea" || typeLabel == "imagine"
+	hasQuota := typeLabel == "openai" || typeLabel == "adobe" || typeLabel == "runway" || typeLabel == "leonardo" || typeLabel == "krea" || typeLabel == "imagine" || typeLabel == "grok"
 	return map[string]any{
 		"id":                item.ID,
 		"pool":              item.Pool,

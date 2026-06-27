@@ -139,6 +139,8 @@ func (c *Client) FetchCreditsBalance(ctx context.Context, token string) (map[str
 	if err != nil {
 		return nil, err
 	}
+	// Per ops decision a rate-limit (403) is treated as a dead account too, same as
+	// a 401 — a throttled Runway token is considered done.
 	if resp.StatusCode == 401 || resp.StatusCode == 403 {
 		return nil, ErrAuth
 	}

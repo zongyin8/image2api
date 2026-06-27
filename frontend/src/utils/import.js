@@ -28,6 +28,16 @@ export function looksLikeRunwayJwt(s) {
   return 'sso' in claims && claims.id != null
 }
 
+// Grok website "sso" JWTs carry ONLY a session_id claim (no openai claims, no
+// runway id/sso) — that's what tells them apart from a ChatGPT/Runway JWT.
+export function looksLikeGrokJwt(s) {
+  const claims = decodeJwtPayload(s)
+  if (!claims || typeof claims !== 'object') return false
+  if (Object.keys(claims).some((k) => k.startsWith('https://api.openai.com/'))) return false
+  if ('sso' in claims || claims.id != null) return false
+  return 'session_id' in claims
+}
+
 // Leonardo cookies carry the better-auth session cookie — that's what tells them
 // apart from an Adobe cookie (both are otherwise opaque cookie strings).
 export function looksLikeLeonardoCookie(s) {
@@ -104,11 +114,15 @@ export function parseImportInput(text) {
   // treated as an Adobe cookie string.
   const lines = text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
   return lines.map((line) => {
-    if (looksLikeJwt(line)) {
-      const value = line.replace(/^Bearer\s+/i, '')
+    // Accept a bare JWT or one with a leading `sso=` (grok cookie value form).
+    const stripped = line.replace(/^Bearer\s+/i, '').replace(/^sso=/, '')
+    if (looksLikeJwt(stripped)) {
+      const value = stripped
       return looksLikeRunwayJwt(value)
         ? { type: 'runway', value }
-        : { type: 'openai', value }
+        : looksLikeGrokJwt(value)
+          ? { type: 'grok', value }
+          : { type: 'openai', value }
     }
     return { type: cookieType(line), value: line }
   })

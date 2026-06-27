@@ -19,6 +19,7 @@ import (
 	"backend/internal/model"
 	"backend/internal/provider/adobe"
 	"backend/internal/provider/chatgpt"
+	"backend/internal/provider/grok"
 	"backend/internal/provider/imagine"
 	"backend/internal/provider/krea"
 	"backend/internal/provider/leonardo"
@@ -68,6 +69,7 @@ type V1Service struct {
 	leonardo *leonardo.Client
 	krea     *krea.Client
 	imagine  *imagine.Client
+	grok     *grok.Client
 	store    *storage.Client
 	// refresh re-mints an Adobe access token from its cookie when a request hits a
 	// 401 mid-flight (set via SetRefresh — wired after construction to avoid an
@@ -97,17 +99,37 @@ type V1Service struct {
 // account isn't already running a generation; release frees it when done.
 type accountGate struct{ m sync.Map } // accountID -> struct{} held while busy
 
-func (g *accountGate) tryAcquire(id string) bool {
+// tryAcquireN wins if the account has fewer than max in-flight jobs, atomically
+// bumping its counter. max=1 is the default 1-job-per-account policy; some
+// providers (grok) allow more.
+func (g *accountGate) tryAcquireN(id string, max int) bool {
 	if id == "" {
 		return true
 	}
-	_, loaded := g.m.LoadOrStore(id, struct{}{})
-	return !loaded
+	if max < 1 {
+		max = 1
+	}
+	v, _ := g.m.LoadOrStore(id, new(int64))
+	cnt := v.(*int64)
+	for {
+		cur := atomic.LoadInt64(cnt)
+		if cur >= int64(max) {
+			return false
+		}
+		if atomic.CompareAndSwapInt64(cnt, cur, cur+1) {
+			return true
+		}
+	}
 }
 
+func (g *accountGate) tryAcquire(id string) bool { return g.tryAcquireN(id, 1) }
+
 func (g *accountGate) release(id string) {
-	if id != "" {
-		g.m.Delete(id)
+	if id == "" {
+		return
+	}
+	if v, ok := g.m.Load(id); ok {
+		atomic.AddInt64(v.(*int64), -1)
 	}
 }
 
@@ -173,7 +195,7 @@ type V1VideoRequest struct {
 	BaseURL string
 }
 
-func NewV1Service(cfg *config.Config, models *repo.ModelRepository, users *repo.UserRepository, events *repo.EventRepository, tokens *repo.TokenRepository, settings *repo.SiteSettingRepository, adobeClient *adobe.Client, chatGPTClient *chatgpt.Client, runwayClient *runway.Client, leonardoClient *leonardo.Client, kreaClient *krea.Client, imagineClient *imagine.Client, store *storage.Client) *V1Service {
+func NewV1Service(cfg *config.Config, models *repo.ModelRepository, users *repo.UserRepository, events *repo.EventRepository, tokens *repo.TokenRepository, settings *repo.SiteSettingRepository, adobeClient *adobe.Client, chatGPTClient *chatgpt.Client, runwayClient *runway.Client, leonardoClient *leonardo.Client, kreaClient *krea.Client, imagineClient *imagine.Client, grokClient *grok.Client, store *storage.Client) *V1Service {
 	return &V1Service{
 		cfg:      cfg,
 		models:   models,
@@ -187,6 +209,7 @@ func NewV1Service(cfg *config.Config, models *repo.ModelRepository, users *repo.
 		leonardo: leonardoClient,
 		krea:     kreaClient,
 		imagine:  imagineClient,
+		grok:     grokClient,
 		store:    store,
 		inflight: &InflightRegistry{},
 	}
@@ -415,6 +438,23 @@ func (s *V1Service) prepareImageExecution(ctx context.Context, principal *APIPri
 			}
 		}
 		imageBytes = b
+	case "runway":
+		b, execErr := s.generateRunwayImage(genCtx, eventID, modelItem, in, aspectRatio, resolution)
+		if execErr != nil {
+			_ = s.refundIfNeeded(ctx, principal, eventID, price)
+			_ = s.events.UpdateStatus(ctx, eventID, "failed", execErr.Error(), 0)
+			switch {
+			case errors.Is(execErr, runway.ErrAuth):
+				return nil, ErrProviderAuth
+			case errors.Is(execErr, runway.ErrQuotaExhausted):
+				return nil, ErrProviderQuota
+			case errors.Is(execErr, runway.ErrTemporaryUpstream):
+				return nil, ErrProviderTemporary
+			default:
+				return nil, fmt.Errorf("%w: %v", ErrProviderExecution, execErr)
+			}
+		}
+		imageBytes = b
 	default:
 		_ = s.refundIfNeeded(ctx, principal, eventID, price)
 		_ = s.events.UpdateStatus(ctx, eventID, "failed", "provider not implemented", 0)
@@ -517,6 +557,8 @@ func (s *V1Service) prepareVideoExecution(ctx context.Context, principal *APIPri
 		videoBytes, _, execErr = s.generateAdobeVideo(genCtx, eventID, modelItem, in, aspectRatio, resolution, parseDurationSeconds(duration), true)
 	case "runway":
 		videoBytes, _, execErr = s.generateRunwayVideo(genCtx, eventID, modelItem, in, aspectRatio, parseDurationSeconds(duration), true)
+	case "grok":
+		videoBytes, _, execErr = s.generateGrokVideo(genCtx, eventID, modelItem, in, aspectRatio, resolution, parseDurationSeconds(duration), true)
 	default:
 		_ = s.refundIfNeeded(ctx, principal, eventID, price)
 		_ = s.events.UpdateStatus(ctx, eventID, "failed", "provider not implemented", 0)
@@ -528,11 +570,11 @@ func (s *V1Service) prepareVideoExecution(ctx context.Context, principal *APIPri
 		switch {
 		case errors.Is(execErr, ErrNoProviderAccount):
 			return nil, ErrNoProviderAccount
-		case errors.Is(execErr, adobe.ErrAuth), errors.Is(execErr, runway.ErrAuth):
+		case errors.Is(execErr, adobe.ErrAuth), errors.Is(execErr, runway.ErrAuth), errors.Is(execErr, grok.ErrAuth):
 			return nil, ErrProviderAuth
-		case errors.Is(execErr, adobe.ErrQuotaExhausted), errors.Is(execErr, runway.ErrQuotaExhausted):
+		case errors.Is(execErr, adobe.ErrQuotaExhausted), errors.Is(execErr, runway.ErrQuotaExhausted), errors.Is(execErr, grok.ErrQuotaExhausted):
 			return nil, ErrProviderQuota
-		case errors.Is(execErr, adobe.ErrTemporaryUpstream), errors.Is(execErr, runway.ErrTemporaryUpstream):
+		case errors.Is(execErr, adobe.ErrTemporaryUpstream), errors.Is(execErr, runway.ErrTemporaryUpstream), errors.Is(execErr, grok.ErrTemporaryUpstream):
 			return nil, ErrProviderTemporary
 		default:
 			return nil, fmt.Errorf("%w: %v", ErrProviderExecution, execErr)
@@ -621,6 +663,8 @@ func (s *V1Service) runVideoJob(ctx context.Context, principal *APIPrincipal, in
 		_, videoURL, execErr = s.generateAdobeVideo(genCtx, eventID, modelItem, in, aspectRatio, resolution, parseDurationSeconds(duration), false)
 	case "runway":
 		_, videoURL, execErr = s.generateRunwayVideo(genCtx, eventID, modelItem, in, aspectRatio, parseDurationSeconds(duration), false)
+	case "grok":
+		_, videoURL, execErr = s.generateGrokVideo(genCtx, eventID, modelItem, in, aspectRatio, resolution, parseDurationSeconds(duration), false)
 	default:
 		_ = s.refundIfNeeded(ctx, principal, eventID, price)
 		_ = s.events.UpdateStatus(ctx, eventID, "failed", "provider not implemented", 0)
@@ -1106,6 +1150,16 @@ func (s *V1Service) finishUnimplementedEvent(ctx context.Context, eventID string
 // same account; account-level errors (auth/quota) skip straight to the next.
 const maxSameAccountAttempts = 3
 
+// grokConcurrencyPerAccount is how many simultaneous generations one grok account
+// may run (grok tolerates 10, unlike the 1-per-account default elsewhere).
+const grokConcurrencyPerAccount = 10
+
+// maxTempDeadAccounts caps how many accounts the "temporary error = dead account"
+// policy (tempAsDead, used by adobe) is allowed to mark dead + fail over before
+// giving up, so an upstream-wide blip ("system under load") can't nuke the whole
+// pool. After this many accounts fail this way, the request fails.
+const maxTempDeadAccounts = 3
+
 // runPoolWithFailover drives a generation across a round-robin-ordered account
 // list with per-error-class behavior, so a bad request never burns the whole
 // pool while genuinely limited accounts still fail over:
@@ -1115,9 +1169,13 @@ const maxSameAccountAttempts = 3
 //   - 认证失效 auth → refresh the token from its cookie and retry ONCE with the
 //     fresh token; if it still auth-fails (or there's nothing to refresh, e.g.
 //     chatgpt's JWT IS the credential), mark the account and fail over.
-//   - 上游临时 temporary → retry the SAME account up to maxSameAccountAttempts
-//     times (not counted); if still failing, STOP (no fan-out — an upstream-wide
-//     blip fails identically everywhere).
+//   - 上游临时 temporary → behavior depends on tempAsDead:
+//       • tempAsDead=false (default): retry the SAME account up to
+//         maxSameAccountAttempts times (not counted); if still failing, STOP
+//         (no fan-out — an upstream-wide blip fails identically everywhere).
+//       • tempAsDead=true (adobe): treat the temporary error as a DEAD account —
+//         mark it like a 401 and fail over to the next account, capped at
+//         maxTempDeadAccounts accounts so a pool-wide blip can't kill everything.
 //   - 参数错 / request-level (anything else) → return immediately, no retry, no
 //     account penalty (the account isn't at fault).
 //
@@ -1130,9 +1188,11 @@ func (s *V1Service) runPoolWithFailover(ctx context.Context, eventID, pool strin
 	attempt func(token model.TokenAccount) ([]byte, error),
 	classify func(error) (isAuth, isQuota, isTemporary bool),
 	refreshOnAuth func(tokenID string) (model.TokenAccount, bool),
+	tempAsDead bool,
 ) ([]byte, error) {
 	var lastErr error
 	busy := 0
+	tempDeadCount := 0
 	for _, token := range active {
 		// 1 concurrent job per account: skip any account already generating.
 		if !s.gate.tryAcquire(token.ID) {
@@ -1140,14 +1200,23 @@ func (s *V1Service) runPoolWithFailover(ctx context.Context, eventID, pool strin
 			continue
 		}
 		// release via defer so a panic in tryAccount can't leak the 1-job slot.
-		data, err, failover := func() ([]byte, error, bool) {
+		data, err, failover, tempDead := func() ([]byte, error, bool, bool) {
 			defer s.gate.release(token.ID)
-			return s.tryAccount(ctx, eventID, pool, token, kind, attempt, classify, refreshOnAuth)
+			return s.tryAccount(ctx, eventID, pool, token, kind, attempt, classify, refreshOnAuth, tempAsDead)
 		}()
 		if err == nil {
 			return data, nil
 		}
 		lastErr = err
+		if tempDead {
+			// temp-as-dead policy: this account was marked dead for a temporary
+			// upstream error. Cap how many accounts that can burn before we stop,
+			// so an upstream-wide blip doesn't wipe the whole pool.
+			tempDeadCount++
+			if tempDeadCount >= maxTempDeadAccounts {
+				return nil, lastErr
+			}
+		}
 		if failover {
 			continue
 		}
@@ -1173,7 +1242,8 @@ func (s *V1Service) tryAccount(ctx context.Context, eventID, pool string, token 
 	attempt func(token model.TokenAccount) ([]byte, error),
 	classify func(error) (isAuth, isQuota, isTemporary bool),
 	refreshOnAuth func(tokenID string) (model.TokenAccount, bool),
-) ([]byte, error, bool) {
+	tempAsDead bool,
+) ([]byte, error, bool, bool) {
 	_ = s.events.SetAccount(ctx, eventID, token.ID)
 	_ = s.tokens.TouchLastUsed(ctx, token.ID)
 	authRefreshed := false
@@ -1186,12 +1256,12 @@ func (s *V1Service) tryAccount(ctx context.Context, eventID, pool string, token 
 				"success_total": gorm.Expr("success_total + 1"),
 				"fails":         0,
 			})
-			return data, nil, false
+			return data, nil, false, false
 		}
 		isAuth, isQuota, isTemp := classify(err)
 		if isQuota {
 			s.markTokenFailure(ctx, pool, token, kind, false, true)
-			return nil, err, true
+			return nil, err, true, false
 		}
 		if isAuth {
 			// Refresh from cookie and retry ONCE; otherwise the credential is dead.
@@ -1203,24 +1273,32 @@ func (s *V1Service) tryAccount(ctx context.Context, eventID, pool string, token 
 				}
 			}
 			s.markTokenFailure(ctx, pool, token, kind, true, false)
-			return nil, err, true
+			return nil, err, true, false
 		}
 		if isTemp {
+			if tempAsDead {
+				// Ops policy (adobe): a temporary upstream error ("system under
+				// load" etc.) means this account is effectively dead — mark it
+				// like a 401 and fail over to the next account. The pool driver
+				// caps how many accounts this is allowed to burn.
+				s.markTokenFailure(ctx, pool, token, kind, true, false)
+				return nil, err, true, true
+			}
 			tempAttempts++
 			if tempAttempts < maxSameAccountAttempts {
 				// Short linear backoff (1s, 2s) so an overloaded/rate-limited upstream
-				// (e.g. adobe "system under load") gets a moment to recover before the
-				// same-account retry, instead of hammering it instantly.
+				// gets a moment to recover before the same-account retry, instead of
+				// hammering it instantly.
 				select {
 				case <-time.After(time.Duration(tempAttempts) * time.Second):
 				case <-ctx.Done():
-					return nil, err, false
+					return nil, err, false, false
 				}
 				continue
 			}
-			return nil, err, false // exhausted; no fan-out
+			return nil, err, false, false // exhausted; no fan-out
 		}
-		return nil, err, false // 参数错 / request-level
+		return nil, err, false, false // 参数错 / request-level
 	}
 }
 
@@ -1262,8 +1340,10 @@ func (s *V1Service) generateAdobeImage(ctx context.Context, eventID string, mode
 		return nil, err
 	}
 
-	// Round-robin order; same-account retry on transient errors, fail over to the
-	// next account on auth/quota (see runPoolWithFailover).
+	// Round-robin order. Adobe uses tempAsDead=true: a temporary upstream error
+	// ("system under load") marks the account dead (like a 401) and fails over to
+	// the next account, capped at maxTempDeadAccounts; auth/quota also fail over
+	// (see runPoolWithFailover).
 	return s.runPoolWithFailover(ctx, eventID, "adobe", active, "image", func(token model.TokenAccount) ([]byte, error) {
 		var blobIDs []string
 		for _, ref := range refs {
@@ -1277,7 +1357,7 @@ func (s *V1Service) generateAdobeImage(ctx context.Context, eventID string, mode
 		return data, genErr
 	}, adobeErrClass, func(id string) (model.TokenAccount, bool) {
 		return s.refreshAdobeToken(ctx, id)
-	})
+	}, true)
 }
 
 func (s *V1Service) generateAdobeVideo(ctx context.Context, eventID string, modelItem *model.ModelConfig, in V1VideoRequest, aspectRatio, resolution string, durationSeconds int, downloadResult bool) ([]byte, string, error) {
@@ -1323,8 +1403,9 @@ func (s *V1Service) generateAdobeVideo(ctx context.Context, eventID string, mode
 	referenceMode := defaultString(strings.TrimSpace(modelItem.ReferenceMode), "frame")
 
 	// Round-robin order; same-account retry on transient errors, fail over to the
-	// next account on auth/quota (see runPoolWithFailover). videoURL is captured
-	// from the successful attempt's meta (the upstream presigned URL).
+	// next account on auth/quota; temporary upstream errors mark the account dead
+	// and fail over too (tempAsDead, capped at maxTempDeadAccounts). videoURL is
+	// captured from the successful attempt's meta (the upstream presigned URL).
 	var videoURL string
 	data, err := s.runPoolWithFailover(ctx, eventID, "adobe", active, "video", func(token model.TokenAccount) ([]byte, error) {
 		var blobIDs []string
@@ -1342,20 +1423,9 @@ func (s *V1Service) generateAdobeVideo(ctx context.Context, eventID string, mode
 		return bytes, genErr
 	}, adobeErrClass, func(id string) (model.TokenAccount, bool) {
 		return s.refreshAdobeToken(ctx, id)
-	})
+	}, true)
 	return data, videoURL, err
 }
-
-// runwayMinCredits gates account scheduling: a Runway account with fewer than
-// this many credits remaining is treated as quota-limited and skipped, so we
-// never dial upstream with an account that's about to run dry. Flat threshold
-// (not per-duration) by request.
-const runwayMinCredits = 50
-
-// runwayCreditsPerSecond is Gen-4 Turbo's price (5 credits/sec → 5s=25, 10s=50),
-// used to pre-reserve the exact render cost so concurrent picks of one account
-// can't over-commit it.
-const runwayCreditsPerSecond = 5
 
 // leonardoMinCredits is the per-generation token cost (one Leonardo image = 30
 // tokens). An account with fewer is treated as 限额 and skipped — it can't afford
@@ -1391,10 +1461,10 @@ func (s *V1Service) generateRunwayVideo(ctx context.Context, eventID string, mod
 		if item.Status != "active" || item.Dead || strings.TrimSpace(item.Value) == "" {
 			continue
 		}
-		// Skip accounts under the credit floor (treated as quota-limited). Only
-		// skip when we KNOW the balance is too low — an unknown balance gets the
-		// benefit of the doubt (upstream will reject if it's truly empty).
-		if rem, ok := jsonMapInt(item.Meta, "cached_quota_remaining"); ok && rem < runwayMinCredits {
+		// No pre-deduct (same policy as the image flow): skip only accounts we KNOW
+		// are out of credits (cached remaining <= 0) — those are treated as dead.
+		// Unknown balance gets the benefit of the doubt.
+		if rem, ok := jsonMapInt(item.Meta, "cached_quota_remaining"); ok && rem <= 0 {
 			continue
 		}
 		active = append(active, item)
@@ -1404,9 +1474,6 @@ func (s *V1Service) generateRunwayVideo(ctx context.Context, eventID string, mod
 	}
 	s.rotateRoundRobin("runway", active)
 
-	// Pre-reserve the exact render cost (5 credits/sec) so two concurrent renders
-	// can't over-commit the same account.
-	cost := durationSeconds * runwayCreditsPerSecond
 	var lastErr error
 	var videoURL string
 	busy := 0
@@ -1417,22 +1484,10 @@ func (s *V1Service) generateRunwayVideo(ctx context.Context, eventID string, mod
 			continue
 		}
 		var data []byte
-		ok := func() bool {
+		done, failover := func() (bool, bool) {
 			defer s.gate.release(token.ID)
 			_ = s.events.SetAccount(ctx, eventID, token.ID)
 			_ = s.tokens.TouchLastUsed(ctx, token.ID)
-			// Atomic pre-deduction (row-locked). Known-insufficient → sink to 限额
-			// and fail over to the next account.
-			allowed, deducted, rerr := s.tokens.ReserveQuota(ctx, "runway", token.ID, cost)
-			if rerr != nil {
-				lastErr = fmt.Errorf("%w: reserve: %v", runway.ErrTemporaryUpstream, rerr)
-				return false
-			}
-			if !allowed {
-				s.markTokenFailure(ctx, "runway", token, "video", false, true)
-				lastErr = runway.ErrQuotaExhausted
-				return false
-			}
 			teamID := ""
 			if token.Meta != nil {
 				teamID = strings.TrimSpace(stringValue(token.Meta["team_id"]))
@@ -1444,26 +1499,31 @@ func (s *V1Service) generateRunwayVideo(ctx context.Context, eventID string, mod
 					"success_total": gorm.Expr("success_total + 1"),
 					"fails":         0,
 				})
-				// Re-fetch the REAL balance after the render and sink to 限额 if below
-				// the floor. Best-effort — never fail an already-successful render.
-				s.reconcileRunwayCredits(ctx, token.ID, token.Value)
 				data = d
 				videoURL = strings.TrimSpace(stringValue(meta["video_url"]))
-				return true
-			}
-			// Release the hold so a failed render doesn't burn credits.
-			if deducted {
-				_ = s.tokens.RefundQuota(ctx, "runway", token.ID, cost)
+				return true, false
 			}
 			lastErr = genErr
-			s.markTokenFailure(ctx, "runway", token, "video",
-				errors.Is(genErr, runway.ErrAuth),
-				errors.Is(genErr, runway.ErrQuotaExhausted))
-			return false
+			switch {
+			case errors.Is(genErr, runway.ErrAuth), errors.Is(genErr, runway.ErrQuotaExhausted):
+				// 额度没了 / token 失效 → 当 401 判死(status=disabled, dead),换号。
+				s.markTokenFailure(ctx, "runway", token, "video", true, false)
+				return false, true
+			case errors.Is(genErr, runway.ErrTemporaryUpstream):
+				// 上游临时错误 → 直接换下一个号。
+				return false, true
+			default:
+				// 参数级错误(如 prompt 未过审)→ 直接失败,不换号。
+				return false, false
+			}
 		}()
-		if ok {
+		if done {
 			return data, videoURL, nil
 		}
+		if failover {
+			continue
+		}
+		return nil, "", lastErr
 	}
 	if lastErr == nil {
 		if busy > 0 {
@@ -1474,41 +1534,209 @@ func (s *V1Service) generateRunwayVideo(ctx context.Context, eventID string, mod
 	return nil, "", lastErr
 }
 
-// reconcileRunwayCredits re-fetches an account's authoritative credit balance
-// (after a render) and writes it back, flipping the account to "限额" (quota)
-// when it's below the floor. Concurrency-safe: every write stores a freshly
-// observed real balance — no local arithmetic that could lose updates under
-// concurrent renders. Best-effort; marks down only (recovery is unwritten).
-func (s *V1Service) reconcileRunwayCredits(ctx context.Context, tokenID, tokenValue string) {
+// generateGrokVideo runs grok's imagine video pipeline across the grok pool.
+// Mirrors the runway policy: no pre-deduct, skip accounts known out of credits
+// (cached remaining <= 0), and treat an out-of-credits / auth failure as a dead
+// account (the grok sso can't be renewed — 失效就失效). Text-to-video only for
+// now (grok reference-image upload isn't wired yet).
+func (s *V1Service) generateGrokVideo(ctx context.Context, eventID string, modelItem *model.ModelConfig, in V1VideoRequest, aspectRatio, resolution string, durationSeconds int, downloadResult bool) ([]byte, string, error) {
+	if s.grok == nil {
+		return nil, "", errors.New("grok client not configured")
+	}
+	if s.settings != nil {
+		if proxy, err := s.settings.GetValue(ctx, "proxy.url"); err == nil {
+			s.grok.SetProxy(proxy)
+		}
+	}
+
+	// Optional reference frames (image-to-video), up to the model's max.
+	frames, err := decodeReferenceImages(in.ReferenceImages, max(1, modelItem.MaxReferenceImages))
+	if err != nil {
+		return nil, "", err
+	}
+
+	items, err := s.tokens.ListByPool(ctx, "grok")
+	if err != nil {
+		return nil, "", err
+	}
+	var active []model.TokenAccount
+	for _, item := range items {
+		if item.Status != "active" || item.Dead || strings.TrimSpace(item.Value) == "" {
+			continue
+		}
+		if rem, ok := jsonMapInt(item.Meta, "cached_quota_remaining"); ok && rem <= 0 {
+			continue
+		}
+		active = append(active, item)
+	}
+	if len(active) == 0 {
+		return nil, "", ErrNoProviderAccount
+	}
+	s.rotateRoundRobin("grok", active)
+
+	res := strings.TrimSpace(resolution)
+	if res == "" {
+		res = "720p"
+	}
+	var lastErr error
+	var videoURL string
+	busy := 0
+	for _, token := range active {
+		// grok allows 10 concurrent jobs per account (unlike the 1-per-account
+		// default of the other pools).
+		if !s.gate.tryAcquireN(token.ID, grokConcurrencyPerAccount) {
+			busy++
+			continue
+		}
+		var data []byte
+		done, failover := func() (bool, bool) {
+			defer s.gate.release(token.ID)
+			_ = s.events.SetAccount(ctx, eventID, token.ID)
+			_ = s.tokens.TouchLastUsed(ctx, token.ID)
+			d, meta, genErr := s.grok.GenerateVideo(ctx, token.Value, in.Prompt, aspectRatio, res, durationSeconds, frames, downloadResult)
+			if genErr == nil {
+				_, _ = s.tokens.Update(ctx, "grok", token.ID, map[string]any{
+					"last_used_at":  time.Now(),
+					"success_total": gorm.Expr("success_total + 1"),
+					"fails":         0,
+				})
+				data = d
+				videoURL = strings.TrimSpace(stringValue(meta["video_url"]))
+				return true, false
+			}
+			lastErr = genErr
+			switch {
+			case errors.Is(genErr, grok.ErrAuth), errors.Is(genErr, grok.ErrQuotaExhausted):
+				// 失效 / 额度没了 → 当 401 判死(不续期),换号。
+				s.markTokenFailure(ctx, "grok", token, "video", true, false)
+				return false, true
+			case errors.Is(genErr, grok.ErrTemporaryUpstream):
+				return false, true
+			default:
+				return false, false
+			}
+		}()
+		if done {
+			return data, videoURL, nil
+		}
+		if failover {
+			continue
+		}
+		return nil, "", lastErr
+	}
+	if lastErr == nil {
+		if busy > 0 {
+			return nil, "", ErrConcurrencyFull
+		}
+		lastErr = ErrProviderExecution
+	}
+	return nil, "", lastErr
+}
+
+// generateRunwayImage runs the Runway "Nano Banana 2" (gemini_3_1_flash_image)
+// image pipeline across the runway pool. Unlike the video path it does NOT
+// pre-deduct credits: it simply round-robins the pool and generates. Per ops
+// decision an out-of-credits account is treated like a dead 401 — marked
+// dead (status=disabled) and skipped — because Runway credits don't refill
+// daily, so a "quota" mark (which the maintenance loop would revive) is wrong.
+// Reference images (up to the model's max) are uploaded per attempt.
+func (s *V1Service) generateRunwayImage(ctx context.Context, eventID string, modelItem *model.ModelConfig, in V1ImageRequest, aspectRatio, resolution string) ([]byte, error) {
 	if s.runway == nil {
-		return
+		return nil, errors.New("runway client not configured")
 	}
-	data, err := s.runway.FetchCreditsBalance(ctx, tokenValue)
+	if s.settings != nil {
+		if proxy, err := s.settings.GetValue(ctx, "proxy.url"); err == nil {
+			s.runway.SetProxy(proxy)
+		}
+	}
+
+	refs, err := decodeReferenceImages(in.ReferenceImages, max(1, modelItem.MaxReferenceImages))
 	if err != nil {
-		return
+		return nil, err
 	}
-	rem, ok := data["remaining"].(int)
-	if !ok {
-		return
-	}
-	item, err := s.tokens.Get(ctx, "runway", tokenID)
+
+	items, err := s.tokens.ListByPool(ctx, "runway")
 	if err != nil {
-		return
+		return nil, err
 	}
-	meta := cloneJSONMap(item.Meta)
-	meta["cached_quota_remaining"] = rem
-	meta["cached_quota_at"] = int(time.Now().Unix())
-	if used, ok := data["used"].(int); ok {
-		meta["cached_quota_used"] = used
+	var active []model.TokenAccount
+	for _, item := range items {
+		if item.Status != "active" || item.Dead || strings.TrimSpace(item.Value) == "" {
+			continue
+		}
+		// No pre-deduct: skip only accounts we KNOW are out of credits
+		// (cached remaining <= 0); they're treated as dead. Unknown balance gets
+		// the benefit of the doubt — upstream rejects if it's truly empty.
+		if rem, ok := jsonMapInt(item.Meta, "cached_quota_remaining"); ok && rem <= 0 {
+			continue
+		}
+		active = append(active, item)
 	}
-	if total, ok := data["total"].(int); ok {
-		meta["cached_quota_total"] = total
+	if len(active) == 0 {
+		return nil, ErrNoProviderAccount
 	}
-	patch := map[string]any{"meta": meta}
-	if rem < runwayMinCredits && item.Status == "active" {
-		patch["status"] = "quota"
+	s.rotateRoundRobin("runway", active)
+
+	imageSize := strings.TrimSpace(resolution)
+	if imageSize == "" {
+		imageSize = "1K"
 	}
-	_, _ = s.tokens.Update(ctx, "runway", tokenID, patch)
+	var lastErr error
+	busy := 0
+	for _, token := range active {
+		// 1 concurrent job per account: skip any account already generating.
+		if !s.gate.tryAcquire(token.ID) {
+			busy++
+			continue
+		}
+		var data []byte
+		done, failover := func() (bool, bool) {
+			defer s.gate.release(token.ID)
+			_ = s.events.SetAccount(ctx, eventID, token.ID)
+			_ = s.tokens.TouchLastUsed(ctx, token.ID)
+			teamID := ""
+			if token.Meta != nil {
+				teamID = strings.TrimSpace(stringValue(token.Meta["team_id"]))
+			}
+			d, _, genErr := s.runway.GenerateImage(ctx, token.Value, teamID, in.Prompt, aspectRatio, imageSize, refs)
+			if genErr == nil {
+				_, _ = s.tokens.Update(ctx, "runway", token.ID, map[string]any{
+					"last_used_at":  time.Now(),
+					"success_total": gorm.Expr("success_total + 1"),
+					"fails":         0,
+				})
+				data = d
+				return true, false
+			}
+			lastErr = genErr
+			switch {
+			case errors.Is(genErr, runway.ErrAuth), errors.Is(genErr, runway.ErrQuotaExhausted):
+				// 额度没了 / token 失效 → 当 401 判死(status=disabled, dead),换号。
+				s.markTokenFailure(ctx, "runway", token, "image", true, false)
+				return false, true
+			case errors.Is(genErr, runway.ErrTemporaryUpstream):
+				// 上游临时错误 → 直接换下一个号。
+				return false, true
+			default:
+				// 参数级错误(如 prompt 未过审)→ 直接失败,不换号。
+				return false, false
+			}
+		}()
+		if done {
+			return data, nil
+		}
+		if failover {
+			continue
+		}
+		return nil, lastErr
+	}
+	if lastErr == nil {
+		if busy > 0 {
+			return nil, ErrConcurrencyFull
+		}
+		lastErr = ErrProviderExecution
+	}
+	return nil, lastErr
 }
 
 // reconcileChatGPTQuota re-reads OpenAI's image_gen remaining right after a
@@ -1590,7 +1818,7 @@ func (s *V1Service) generateChatGPTImage(ctx context.Context, eventID string, mo
 		return data, genErr
 	}, func(e error) (bool, bool, bool) {
 		return errors.Is(e, chatgpt.ErrAuth), errors.Is(e, chatgpt.ErrQuotaExhausted), errors.Is(e, chatgpt.ErrTemporaryUpstream)
-	}, nil) // chatgpt token IS the credential — no cookie to refresh
+	}, nil, false) // chatgpt token IS the credential — no cookie to refresh
 }
 
 // leonardoResetAfter returns when a Leonardo account's daily free tokens renew.
@@ -1717,7 +1945,7 @@ func (s *V1Service) generateLeonardoImage(ctx context.Context, eventID string, m
 		return data, nil
 	}, func(e error) (bool, bool, bool) {
 		return errors.Is(e, leonardo.ErrAuth), errors.Is(e, leonardo.ErrQuotaExhausted), errors.Is(e, leonardo.ErrTemporaryUpstream)
-	}, nil)
+	}, nil, false)
 }
 
 // reconcileLeonardoCredits re-fetches an account's real token balance after a
@@ -1847,7 +2075,7 @@ func (s *V1Service) generateKreaImage(ctx context.Context, eventID string, model
 		return data, genErr
 	}, func(e error) (bool, bool, bool) {
 		return errors.Is(e, krea.ErrAuth), errors.Is(e, krea.ErrQuotaExhausted), errors.Is(e, krea.ErrTemporaryUpstream)
-	}, nil)
+	}, nil, false)
 }
 
 // imagineRefreshAndPersist ensures the account's Imagine credential has a valid
@@ -1916,37 +2144,10 @@ func (s *V1Service) generateImagineImage(ctx context.Context, eventID string, mo
 		if genErr != nil {
 			return nil, genErr
 		}
-		// Success → re-sync the displayed balance (best-effort).
-		s.reconcileImagineCredits(ctx, token.ID, cred)
 		return data, nil
 	}, func(e error) (bool, bool, bool) {
 		return errors.Is(e, imagine.ErrAuth), errors.Is(e, imagine.ErrQuotaExhausted), errors.Is(e, imagine.ErrTemporaryUpstream)
-	}, nil)
-}
-
-// reconcileImagineCredits re-fetches the account's real balance after a render
-// and writes it back (best-effort; never fails a done render). Imagine credits
-// don't daily-reset, so there's no reset marker to advance.
-func (s *V1Service) reconcileImagineCredits(ctx context.Context, tokenID, cred string) {
-	if s.imagine == nil {
-		return
-	}
-	data, err := s.imagine.FetchCreditsBalance(ctx, cred)
-	if err != nil {
-		return
-	}
-	rem, ok := data["remaining"].(int)
-	if !ok {
-		return
-	}
-	item, err := s.tokens.Get(ctx, "imagine", tokenID)
-	if err != nil {
-		return
-	}
-	meta := cloneJSONMap(item.Meta)
-	meta["cached_quota_remaining"] = rem
-	meta["cached_quota_at"] = int(time.Now().Unix())
-	_, _ = s.tokens.Update(ctx, "imagine", tokenID, map[string]any{"meta": meta})
+	}, nil, false)
 }
 
 func (s *V1Service) refundIfNeeded(ctx context.Context, principal *APIPrincipal, eventID string, price float64) error {
