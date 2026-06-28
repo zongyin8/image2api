@@ -241,8 +241,8 @@ async function save() {
                   <span v-for="r in resolutions" :key="r" class="ro-chip">{{ r }}</span>
                   <span v-if="!resolutions.length" class="text-white/30">—</span>
                 </div>
-                <span class="text-white/40">图生图</span>
-                <div class="text-white/70">{{ entry.image_to_image ? '支持' : '不支持' }}</div>
+                <span class="text-white/40">参考图</span>
+                <div class="text-white/70">{{ entry.max_reference_images > 0 ? `${entry.max_reference_images} 张` : (entry.image_to_image ? '支持' : '不支持') }}</div>
               </template>
             </div>
           </div>

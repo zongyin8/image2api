@@ -211,12 +211,12 @@ onMounted(loadModels)
                  video frame mode, supported resolutions for video. -->
             <td class="px-3 py-3.5 align-middle">
               <div class="flex flex-wrap items-center gap-1 text-[11px]">
-                <span v-if="m.type === 'image' && m.image_to_image"
-                      class="cap-chip cap-emerald">图生图</span>
-                <!-- 参考图 is a capability like 图生图 — same emerald style, shown first -->
-                <span v-if="m.type === 'video' && m.max_reference_images > 0"
+                <!-- reference capability with count: frame mode = 首尾帧, else 参考图 -->
+                <span v-if="m.max_reference_images > 0"
                       class="cap-chip cap-emerald"
-                      :title="REF_MODE_LABEL[m.reference_mode]">参考图 {{ m.max_reference_images }}</span>
+                      :title="REF_MODE_LABEL[m.reference_mode]">{{ m.reference_mode === 'frame' ? '首尾帧' : '参考图' }} {{ m.max_reference_images }}</span>
+                <span v-else-if="m.type === 'image' && m.image_to_image"
+                      class="cap-chip cap-emerald">参考图</span>
                 <span v-if="m.type === 'video'" v-for="r in (m.resolutions || [])" :key="'vr'+r"
                       class="cap-chip cap-slate">{{ r }}</span>
                 <span v-if="(m.type === 'image' && !(m.ratios || []).length && !m.image_to_image) ||

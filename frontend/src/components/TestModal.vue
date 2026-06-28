@@ -56,8 +56,8 @@ const refMode = computed(() => familyPreset.value?.reference_mode || props.model
 // text2video; frame refs (首帧/末帧) only enhance the result when supplied.
 const refsRequired = computed(() => false)
 const refsLabel = computed(() => {
-  if (!isVideo) return maxRefs.value > 0 ? '参考图 (可选, 图生图)' : ''
-  if (refMode.value === 'asset') return `参考图 (asset 模式, 最多 ${maxRefs.value} 张)`
+  if (!isVideo) return maxRefs.value > 0 ? '参考图 (可选)' : ''
+  if (refMode.value === 'asset') return `参考图 (最多 ${maxRefs.value} 张)`
   if (refMode.value === 'frame') {
     if (maxRefs.value >= 2) return `首帧 / 末帧 (1=首帧, 2=首尾帧, 最多 ${maxRefs.value} 张)`
     return `首帧 (可选, ${maxRefs.value} 张)`
