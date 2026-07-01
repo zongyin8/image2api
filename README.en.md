@@ -65,13 +65,13 @@ It's more than an API proxy: it ships with **credit billing, CDK top-ups, referr
 
 #### 🎨 Generation
 - Images + videos in one place, with **image-to-image / reference frames** (first frame, last frame, style reference)
-- Multiple resolutions (1K / 2K / 4K), aspect ratios and video durations — configured and priced per model
+- Multiple resolutions (images 1K / 2K / 4K · videos 720p / 1080p), aspect ratios and video durations — configured and priced per model
 - 7 providers, 10+ models, **enable / disable / re-price from the admin console**, no code changes
 
 #### 🔌 OpenAI Compatible
 - Text-to-image `/v1/images/generations` · image-to-image `/v1/images/edits` (multipart ref upload) · video `/v1/videos` (Sora-style async: create → poll → `/content`) · `/v1/models`
-- **Strict OpenAI params**: `size` sets the aspect ratio, `quality` the resolution tier — just swap `base_url` + `api_key` into an existing OpenAI SDK
-- Image results returned **inline as base64** — nothing stored server-side, privacy-friendly
+- **Strict OpenAI params**: `size` drives **both aspect ratio + resolution tier** (images by long edge → 1K/2K/4K, videos by short edge → 720p/1080p) — just swap `base_url` + `api_key` into an existing OpenAI SDK
+- Image results returned **inline as base64** — nothing stored server-side, privacy-friendly; the in-app **/docs** ships a size ↔ tier reference table
 
 #### 🔁 Account Pools + Smart Failover
 - Round-robin scheduling across the pool; one bad account doesn't break the whole
@@ -86,16 +86,19 @@ It's more than an API proxy: it ships with **credit billing, CDK top-ups, referr
 #### 💳 Billing & Operations
 - Credit-based (**pre-deduct + refund on failure**), priced per model / resolution / duration
 - **Agent pricing**: a user can be set as an "agent" role and models can carry agent prices; agent users (including their API key calls) are billed at the agent price, falling back to the normal price when unset
+- **Online top-up (易支付 / epay)**: WeChat / Alipay QR, preset + custom amounts, unpaid orders auto-cancel after 30 min, MD5-verified idempotent callback auto-credits; cumulative top-up tracked
 - **CDK redeem codes** · **referral rewards** · email sign-up / verification code / password reset
+- **Concurrency groups**: cap a user's simultaneous generations (playground + API key combined, `0` = unlimited), self-healing Redis counters, new users auto-join the default group
 - Three roles: regular user / agent / admin (single)
 
 #### 🖥️ User Frontend (Vue 3)
 - Playground · creations gallery · generation logs (with failure reasons / source tags)
-- API docs · API key management · referral · about, light / dark theme
+- **Top-up · Orders** (recharge history / resume unpaid) · API docs · API key management · referral · about, light / dark theme
+- **In-app announcements**: a Markdown notice pops up after login and re-shows whenever its content changes
 
 #### 🛠️ Admin Console
 - Overview dashboard (trends / DAU / top failures / top spenders)
-- Model management (normal + agent price) · account management (bulk import / dedup / quota) · site-wide logs · user management (set as agent) · CDK · showcase · site config
+- Model management (normal + agent price) · account management (bulk import / dedup / quota) · **concurrency groups** · **order management** (filter / search / paginate) · site-wide logs · user management (set as agent / assign concurrency group / view cumulative top-up) · CDK · showcase · **announcements** · site config (incl. epay)
 
 **🧰 Engineering highlights**: tls-client (Chrome JA3/JA4 fingerprint) reliably passes Cloudflare · media stored in S3/RustFS, served through an authenticated proxy with retention cleanup · self-healing maintenance loop (quota recovery / credential refresh / orphan-job cleanup with refunds) · one-command Docker deploy with acme.sh auto HTTPS.
 
@@ -116,15 +119,14 @@ It's more than an API proxy: it ships with **credit billing, CDK top-ups, referr
 ## 🔌 OpenAI-Compatible API
 
 ```bash
-# Text-to-image — pure OpenAI params: size→aspect ratio, quality→tier (low/medium/high→1K/2K/4K)
+# Text-to-image — pure OpenAI params: size drives both aspect ratio + tier (long edge <1800→1K / <3500→2K / ≥3500→4K)
 curl https://your-domain/v1/images/generations \
   -H "Authorization: Bearer sk-xxxx" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-image-2",
     "prompt": "a cute cat on a desk, studio lighting",
-    "size": "1024x1024",
-    "quality": "high"
+    "size": "2048x2048"
   }'
 
 # Image-to-image — multipart reference upload (multiple via image[])
@@ -238,8 +240,10 @@ backend/                       Backend source (Go)
 │   │   ├── grok/              Grok (grok.com, spoofed statsig, video)
 │   │   ├── leonardo/          Leonardo
 │   │   ├── krea/              Krea
-│   │   └── imagine/           Imagine.art
-│   ├── repo/                  Data-access layer (users / models / accounts / logs / CDK…)
+│   │   ├── imagine/           Imagine.art
+│   │   ├── custom/            Custom upstream (OpenAI-compatible v1, routed by id)
+│   │   └── epay/              易支付 / epay (mapi order + MD5-verified callback, top-ups)
+│   ├── repo/                  Data-access layer (users / models / accounts / logs / CDK / orders / concurrency groups…)
 │   ├── service/               Business logic (scheduling, billing, account pools, keep-alive, maintenance)
 │   └── storage/               RustFS / S3 media storage
 ├── Dockerfile                 Multi-stage build (compile source → slim runtime image)
@@ -247,7 +251,7 @@ backend/                       Backend source (Go)
 
 frontend/                      Frontend source (Vue 3 + Vite)
 ├── src/
-│   ├── views/                 Pages (playground / accounts / models / logs / overview / users…)
+│   ├── views/                 Pages (playground / accounts / models / users / concurrency / orders / logs / overview / top-up / settings…)
 │   ├── components/            Reusable components (modals / selectors / lightbox…)
 │   ├── layouts/               Public / admin layouts
 │   ├── utils/                 Utility functions
