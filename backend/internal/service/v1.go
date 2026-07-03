@@ -2644,13 +2644,14 @@ func guessRatio(w, h int) string {
 		W int
 		H int
 	}
-	// The 14 ratios actually used across our models. Must stay in sync with the
+	// The 13 ratios actually used across our models. Must stay in sync with the
 	// custom-model picker (CustomModelModal RATIO_OPTS) and the docs 对照表, so a
-	// /v1 `size` maps to exactly one of them.
+	// /v1 `size` maps to exactly one of them. 9:21 is intentionally absent —
+	// no image provider accepts it (Runway 400s on it).
 	candidates := []candidate{
 		{1, 1},
 		{5, 4}, {4, 3}, {3, 2}, {16, 9}, {2, 1}, {21, 9}, {3, 1}, // 横
-		{4, 5}, {3, 4}, {2, 3}, {9, 16}, {9, 21}, {1, 3}, // 竖
+		{4, 5}, {3, 4}, {2, 3}, {9, 16}, {1, 3}, // 竖
 	}
 	best := candidates[0]
 	bestDelta := absFloat(float64(w)/float64(h) - float64(best.W)/float64(best.H))
