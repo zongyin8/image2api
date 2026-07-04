@@ -87,6 +87,10 @@ async function copyImage() {
            class="w-9 h-9 rounded-lg bg-black/60 ring-1 ring-white/15 hover:bg-black/80 text-white grid place-items-center">
           <Icon name="download" class="w-4 h-4" />
         </a>
+        <button @click.stop="emit('close')" title="关闭"
+                class="w-9 h-9 rounded-lg bg-black/60 ring-1 ring-white/15 hover:bg-black/80 text-white grid place-items-center">
+          <Icon name="close" class="w-4 h-4" />
+        </button>
       </div>
 
       <div v-if="toast"
