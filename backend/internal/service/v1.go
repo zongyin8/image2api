@@ -299,7 +299,7 @@ func (s *V1Service) ListModels(ctx context.Context) ([]map[string]any, error) {
 			continue
 		}
 		out = append(out, map[string]any{
-			"id":                    item.ID,
+			"id":                    item.EffectiveName(),
 			"object":                "model",
 			"created":               now,
 			"owned_by":              item.Provider,
@@ -537,7 +537,7 @@ func (s *V1Service) prepareImageExecution(ctx context.Context, principal *APIPri
 		return map[string]any{
 			"created":    time.Now().Unix(),
 			"data":       []map[string]any{{"b64_json": b64}},
-			"model":      modelItem.ID,
+			"model":      modelItem.EffectiveName(),
 			"provider":   modelItem.Provider,
 			"kind":       "image",
 			"b64_json":   b64,
@@ -549,7 +549,7 @@ func (s *V1Service) prepareImageExecution(ctx context.Context, principal *APIPri
 	return map[string]any{
 		"created":    time.Now().Unix(),
 		"data":       []map[string]any{{"url": fileURL, "b64_json": nil}},
-		"model":      modelItem.ID,
+		"model":      modelItem.EffectiveName(),
 		"provider":   modelItem.Provider,
 		"kind":       "image",
 		"url":        fileURL,
@@ -681,7 +681,7 @@ func (s *V1Service) prepareVideoExecution(ctx context.Context, principal *APIPri
 		return map[string]any{
 			"created":    time.Now().Unix(),
 			"data":       []map[string]any{{"b64_json": b64}},
-			"model":      modelItem.ID,
+			"model":      modelItem.EffectiveName(),
 			"provider":   modelItem.Provider,
 			"kind":       "video",
 			"b64_json":   b64,
@@ -693,7 +693,7 @@ func (s *V1Service) prepareVideoExecution(ctx context.Context, principal *APIPri
 	return map[string]any{
 		"created":    time.Now().Unix(),
 		"data":       []map[string]any{{"url": fileURL}},
-		"model":      modelItem.ID,
+		"model":      modelItem.EffectiveName(),
 		"provider":   modelItem.Provider,
 		"kind":       "video",
 		"url":        fileURL,
@@ -725,7 +725,7 @@ func (s *V1Service) StartVideoJob(ctx context.Context, principal *APIPrincipal, 
 		return nil, err
 	}
 	go s.runVideoJob(ctx, principal, in, modelItem, eventID, aspectRatio, resolution, duration, price, refFiles)
-	return videoJobObject(eventID, modelItem.ID, "queued", 0, duration, sizeFromRatioRes(aspectRatio, resolution), time.Now().Unix(), 0, ""), nil
+	return videoJobObject(eventID, modelItem.EffectiveName(), "queued", 0, duration, sizeFromRatioRes(aspectRatio, resolution), time.Now().Unix(), 0, ""), nil
 }
 
 // runVideoJob renders the clip in the background, capturing the upstream URL
@@ -792,7 +792,13 @@ func (s *V1Service) VideoJob(ctx context.Context, principal *APIPrincipal, id st
 	if ev.Status == "failed" {
 		errMsg = ev.Error
 	}
-	return videoJobObject(ev.ID, ev.Model, status, progress, ev.Duration, sizeFromRatioRes(ev.Ratio, ev.Resolution), ev.TS.Unix(), completedAt, errMsg), nil
+	modelName := ev.Model
+	if nameByID, nerr := s.models.NameMap(ctx); nerr == nil {
+		if name, ok := nameByID[ev.Model]; ok && strings.TrimSpace(name) != "" {
+			modelName = name
+		}
+	}
+	return videoJobObject(ev.ID, modelName, status, progress, ev.Duration, sizeFromRatioRes(ev.Ratio, ev.Resolution), ev.TS.Unix(), completedAt, errMsg), nil
 }
 
 // OpenVideoContent streams a completed job's video by proxying the stored

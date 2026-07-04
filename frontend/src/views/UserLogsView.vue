@@ -88,6 +88,33 @@ async function copyLink(name) {
   setTimeout(() => (toast.value = ''), 1500)
 }
 
+async function copyImage(url) {
+  try {
+    const blob = await (await fetch(url)).blob()
+    const pngBlob = blob.type === 'image/png'
+      ? blob
+      : await new Promise((resolve, reject) => {
+          createImageBitmap(blob).then((bitmap) => {
+            const canvas = document.createElement('canvas')
+            canvas.width = bitmap.width
+            canvas.height = bitmap.height
+            const ctx = canvas.getContext('2d')
+            if (!ctx) { reject(new Error('no canvas ctx')); return }
+            ctx.drawImage(bitmap, 0, 0)
+            canvas.toBlob((out) => {
+              if (out) resolve(out)
+              else reject(new Error('png convert failed'))
+            }, 'image/png')
+          }).catch(reject)
+        })
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })])
+    toast.value = '图片已复制'
+  } catch {
+    toast.value = '复制失败'
+  }
+  setTimeout(() => (toast.value = ''), 1500)
+}
+
 async function copyPrompt(e) {
   if (!e.prompt) return
   const ok = await copyText(e.prompt)
@@ -199,6 +226,10 @@ onUnmounted(() => {
         <!-- hover actions (only when there's a file) -->
         <div v-if="e.status === 'success' && e.file"
              class="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button v-if="e.kind !== 'video'" @click.stop.prevent="copyImage(thumbUrl(e.file))" title="复制缩略图"
+                  class="w-7 h-7 rounded-lg bg-black/50 ring-1 ring-white/10 hover:bg-black/70 text-white grid place-items-center">
+            <Icon name="copy" class="w-3.5 h-3.5" />
+          </button>
           <a :href="generatedUrl(e.file)" :download="e.file.split('/').pop()" @click.stop title="下载"
              class="w-7 h-7 rounded-lg bg-black/50 ring-1 ring-white/10 hover:bg-black/70 text-white grid place-items-center">
             <Icon name="download" class="w-3.5 h-3.5" />
@@ -212,7 +243,7 @@ onUnmounted(() => {
                :title="e.prompt ? '点击复制提示词' : ''"
                @click.stop="copyPrompt(e)">{{ e.prompt }}</div>
           <div class="text-[10px] text-white/55 flex items-center justify-between gap-2 tabular-nums">
-            <span class="truncate" :title="e.model || ''">{{ e.model || '—' }}</span>
+            <span class="break-all" :title="e.model || ''">{{ e.model || '—' }}</span>
             <span class="shrink-0 flex items-center gap-1">
               <span v-if="e.resolution" class="text-emerald-300/90">{{ e.resolution }}</span>
               <span v-if="e.ratio" class="text-white/40">{{ e.ratio }}</span>

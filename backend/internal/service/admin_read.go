@@ -54,6 +54,10 @@ func (s *AdminReadService) Models(ctx context.Context) ([]model.ModelConfig, err
 	return s.models.List(ctx)
 }
 
+func (s *AdminReadService) ModelNameMap(ctx context.Context) (map[string]string, error) {
+	return s.models.NameMap(ctx)
+}
+
 func (s *AdminReadService) ModelsView(ctx context.Context) ([]map[string]any, error) {
 	items, err := s.models.List(ctx)
 	if err != nil {
@@ -63,6 +67,7 @@ func (s *AdminReadService) ModelsView(ctx context.Context) ([]map[string]any, er
 	for _, item := range items {
 		out = append(out, map[string]any{
 			"id":                    item.ID,
+			"alias":                 item.Alias,
 			"type":                  item.Type,
 			"name":                  item.Name,
 			"provider":              item.Provider,
@@ -423,6 +428,10 @@ func (s *AdminReadService) Images(ctx context.Context, limit, offset int, kind s
 	if err != nil {
 		return nil, 0, nil, err
 	}
+	nameMap, err := s.models.NameMap(ctx)
+	if err != nil {
+		return nil, 0, nil, err
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, item := range page {
 		row := map[string]any{
@@ -438,7 +447,11 @@ func (s *AdminReadService) Images(ctx context.Context, limit, offset int, kind s
 		}
 		if event, ok := index[item.Name]; ok {
 			row["prompt"] = event.Prompt
-			row["model"] = event.Model
+			if eff, ok := nameMap[event.Model]; ok && eff != "" {
+				row["model"] = eff
+			} else {
+				row["model"] = event.Model
+			}
 			row["resolution"] = event.Resolution
 			row["ratio"] = event.Ratio
 			row["duration"] = event.Duration

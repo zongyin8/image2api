@@ -124,6 +124,10 @@ func (s *UserGenerationService) MyJobs(ctx context.Context, user *model.User, so
 	if source != "admin" {
 		source = "user"
 	}
+	modelNames, err := s.ModelNameMap(ctx)
+	if err != nil {
+		return nil, err
+	}
 	pending, err := s.events.PendingByUser(ctx, user.ID, source)
 	if err != nil {
 		return nil, err
@@ -133,12 +137,16 @@ func (s *UserGenerationService) MyJobs(ctx context.Context, user *model.User, so
 		return nil, err
 	}
 	return map[string]any{
-		"pending": shapeJobEvent(pending),
-		"latest":  shapeJobEvent(latest),
+		"pending": shapeJobEvent(pending, modelNames),
+		"latest":  shapeJobEvent(latest, modelNames),
 	}, nil
 }
 
-func shapeJobEvent(item *model.EventLog) map[string]any {
+func (s *UserGenerationService) ModelNameMap(ctx context.Context) (map[string]string, error) {
+	return s.models.NameMap(ctx)
+}
+
+func shapeJobEvent(item *model.EventLog, modelNames map[string]string) map[string]any {
 	if item == nil {
 		return nil
 	}
@@ -150,7 +158,7 @@ func shapeJobEvent(item *model.EventLog) map[string]any {
 	return map[string]any{
 		"id":             item.ID,
 		"kind":           item.Kind,
-		"model":          item.Model,
+		"model":          displayModelName(modelNames, item.Model),
 		"prompt":         item.Prompt,
 		"ratio":          item.Ratio,
 		"resolution":     item.Resolution,
@@ -165,6 +173,19 @@ func shapeJobEvent(item *model.EventLog) map[string]any {
 		"cost":           item.Cost,
 		"ts":             item.TS.Unix(),
 	}
+}
+
+func displayModelName(modelNames map[string]string, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if modelNames != nil {
+		if name, ok := modelNames[raw]; ok && strings.TrimSpace(name) != "" {
+			return name
+		}
+	}
+	return raw
 }
 
 // referenceURLs turns the stored relative reference paths into /images URLs so

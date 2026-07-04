@@ -69,7 +69,7 @@ const models = computed(() =>
   allModels.value.filter((m) => m.enabled !== false && m.type === mode.value),
 )
 const modelOptions = computed(() =>
-  models.value.map((m) => ({ value: m.id, label: m.name || m.id })),
+  models.value.map((m) => ({ value: m.id, label: m.alias || m.name || m.id })),
 )
 const model = computed(() => allModels.value.find((m) => m.id === modelId.value) || null)
 const familyPreset = computed(() => {
@@ -272,6 +272,32 @@ async function copyPrompt(item) {
   flash(await copyText(text) ? '指令已复制' : '复制失败')
 }
 
+async function copyImage(url) {
+  try {
+    const blob = await (await fetch(url)).blob()
+    const pngBlob = blob.type === 'image/png'
+      ? blob
+      : await new Promise((resolve, reject) => {
+          createImageBitmap(blob).then((bitmap) => {
+            const canvas = document.createElement('canvas')
+            canvas.width = bitmap.width
+            canvas.height = bitmap.height
+            const ctx = canvas.getContext('2d')
+            if (!ctx) { reject(new Error('no canvas ctx')); return }
+            ctx.drawImage(bitmap, 0, 0)
+            canvas.toBlob((out) => {
+              if (out) resolve(out)
+              else reject(new Error('png convert failed'))
+            }, 'image/png')
+          }).catch(reject)
+        })
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })])
+    flash('图片已复制')
+  } catch {
+    flash('复制失败')
+  }
+}
+
 // ---- generate (concurrent — no lock) ----
 // 生图 can request 1–4 images at once: each is an independent task/charge.
 const count = ref(1)
@@ -305,7 +331,7 @@ async function fireOne() {
   // user edits the form (or fires another batch) while this one runs.
   const task = {
     id: Math.random().toString(36).slice(2, 10),
-    model: modelId.value,
+    model: model.value?.alias || modelId.value,
     kind: mode.value,
     prompt: prompt.value,
     ratio: ratio.value,
@@ -686,6 +712,10 @@ onUnmounted(() => {
             <!-- hover action: 上参考图. Image → use as reference; video → 末帧设为首帧
                  (only shown when the model supports 首尾帧). Clicking the media zooms. -->
             <div class="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button v-if="item.kind !== 'video'" @click.stop.prevent="copyImage(item.url + '.thumb.jpg')" title="复制缩略图"
+                      class="w-7 h-7 rounded-lg bg-black/50 ring-1 ring-white/10 hover:bg-black/70 text-white grid place-items-center">
+                <Icon name="copy" class="w-3.5 h-3.5" />
+              </button>
               <a :href="item.url" :download="(item.url || '').split('/').pop()" @click.stop title="下载"
                  class="w-7 h-7 rounded-lg bg-black/50 ring-1 ring-white/10 hover:bg-black/70 text-white grid place-items-center">
                 <Icon name="download" class="w-3.5 h-3.5" />

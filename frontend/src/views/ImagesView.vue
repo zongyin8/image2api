@@ -47,6 +47,32 @@ async function copyLink(name) {
   flash(await copyText(absUrl(name)) ? '链接已复制' : '复制失败')
 }
 
+async function copyImage(url) {
+  try {
+    const blob = await (await fetch(url)).blob()
+    const pngBlob = blob.type === 'image/png'
+      ? blob
+      : await new Promise((resolve, reject) => {
+          createImageBitmap(blob).then(async (bitmap) => {
+            const canvas = document.createElement('canvas')
+            canvas.width = bitmap.width
+            canvas.height = bitmap.height
+            const ctx = canvas.getContext('2d')
+            if (!ctx) { reject(new Error('no canvas ctx')); return }
+            ctx.drawImage(bitmap, 0, 0)
+            canvas.toBlob((out) => {
+              if (out) resolve(out)
+              else reject(new Error('png convert failed'))
+            }, 'image/png')
+          }).catch(reject)
+        })
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })])
+    flash('图片已复制')
+  } catch {
+    flash('复制失败')
+  }
+}
+
 async function copyPrompt(f) {
   if (!f.prompt) return
   flash(await copyText(f.prompt) ? '指令已复制' : '复制失败')
@@ -168,6 +194,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 
         <!-- quick actions, hover-revealed; same style as 首页内容 -->
         <div class="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button v-if="f.kind !== 'video'" @click.stop.prevent="copyImage(thumbUrl(f.name))" title="复制缩略图"
+                  class="w-7 h-7 rounded-lg bg-black/50 ring-1 ring-white/10 hover:bg-black/70 text-white grid place-items-center">
+            <Icon name="copy" class="w-3.5 h-3.5" />
+          </button>
           <a :href="generatedUrl(f.name)" :download="f.name.split('/').pop()" @click.stop title="下载"
              class="w-7 h-7 rounded-lg bg-black/50 ring-1 ring-white/10 hover:bg-black/70 text-white grid place-items-center">
             <Icon name="download" class="w-3.5 h-3.5" />

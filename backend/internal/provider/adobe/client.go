@@ -750,7 +750,30 @@ func (c *Client) pollVideo(ctx context.Context, client tlsclient.HttpClient, tok
 	}
 }
 
+// download fetches the generated artifact from Adobe's presigned S3 URL. The
+// asset is already produced at this point, so a transient network hiccup
+// (connection EOF/reset mid-body, S3 accelerate 5xx) must not fail the whole
+// generation — retry with backoff before giving up.
 func (c *Client) download(ctx context.Context, client tlsclient.HttpClient, url string) ([]byte, error) {
+	var data []byte
+	var err error
+	for _, wait := range []time.Duration{0, 1 * time.Second, 2 * time.Second, 5 * time.Second, 10 * time.Second} {
+		if wait > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(wait):
+			}
+		}
+		data, err = c.downloadOnce(ctx, client, url)
+		if err == nil || !errors.Is(err, ErrTemporaryUpstream) {
+			break
+		}
+	}
+	return data, err
+}
+
+func (c *Client) downloadOnce(ctx context.Context, client tlsclient.HttpClient, url string) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -766,14 +789,23 @@ func (c *Client) download(ctx context.Context, client tlsclient.HttpClient, url 
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		// Network-level failure (EOF, reset, timeout) — transient, worth a retry.
+		return nil, fmt.Errorf("%w: %v", ErrTemporaryUpstream, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode >= 500 {
+			return nil, fmt.Errorf("%w: adobe download failed: %d %s", ErrTemporaryUpstream, resp.StatusCode, clip(body, 200))
+		}
 		return nil, fmt.Errorf("adobe download failed: %d %s", resp.StatusCode, clip(body, 200))
 	}
-	return io.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		// Body truncated mid-read (EOF) — transient, retry.
+		return nil, fmt.Errorf("%w: read body: %v", ErrTemporaryUpstream, err)
+	}
+	return data, nil
 }
 
 func (c *Client) newTLSClient() (tlsclient.HttpClient, error) {

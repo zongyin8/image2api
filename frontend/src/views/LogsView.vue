@@ -230,7 +230,7 @@ const sourcePill = (s) => ({
           <col class="w-32" />        <!-- time -->
           <col class="w-24" />        <!-- status -->
           <col class="w-28" />        <!-- user -->
-          <col class="w-40" />        <!-- model -->
+          <col class="w-56" />        <!-- model -->
           <col />                     <!-- prompt + error -->
           <col class="w-48" />        <!-- params -->
           <col class="w-16" />        <!-- credits -->
@@ -288,7 +288,7 @@ const sourcePill = (s) => ({
               <div v-if="e.account" class="mt-0.5 text-[11px] text-white/45 truncate" :title="e.account">{{ e.account }}</div>
             </td>
             <td class="px-3 py-3.5 align-middle min-w-0">
-              <div class="font-mono text-xs text-white/90 truncate" :title="e.model">{{ e.model }}</div>
+              <div class="font-mono text-xs text-white/90 break-all" :title="e.model">{{ e.model }}</div>
               <div class="mt-1 flex items-center gap-1.5 min-w-0">
                 <span class="text-[10px] uppercase tracking-wider font-medium truncate min-w-0"
                       :class="e.kind === 'video' ? 'text-fuchsia-300/80' : 'text-indigo-300/80'">

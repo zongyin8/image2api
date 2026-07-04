@@ -74,6 +74,11 @@ func (h *AdminReadHandler) Logs(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"detail": "failed to load logs"})
 		return
 	}
+	modelByID, err := h.admin.ModelNameMap(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": "failed to load logs"})
+		return
+	}
 	out := make([]gin.H, 0, len(items))
 	for _, item := range items {
 		var userName any
@@ -97,7 +102,7 @@ func (h *AdminReadHandler) Logs(c *gin.Context) {
 			"ts":         item.TS.Unix(),
 			"kind":       item.Kind,
 			"status":     item.Status,
-			"model":      item.Model,
+			"model":      displayModelName(modelByID, item.Model),
 			"provider":   item.Provider,
 			"prompt":     item.Prompt,
 			"ratio":      item.Ratio,
@@ -192,24 +197,24 @@ func userPublic(user model.User) gin.H {
 		})
 	}
 	return gin.H{
-		"id":             user.ID,
-		"email":          user.Email,
-		"name":           user.Name,
-		"role":           user.Role,
-		"status":         user.Status,
-		"credits":        user.Credits,
-		"notes":          user.Notes,
-		"recharge_total": user.RechargeTotal,
+		"id":                   user.ID,
+		"email":                user.Email,
+		"name":                 user.Name,
+		"role":                 user.Role,
+		"status":               user.Status,
+		"credits":              user.Credits,
+		"notes":                user.Notes,
+		"recharge_total":       user.RechargeTotal,
 		"concurrency_group_id": user.ConcurrencyGroupID,
-		"created_at":     unixSec(user.CreatedAt),
-		"last_login_at":  unixSecPtr(user.LastLoginAt),
-		"last_login_ip":  user.LastLoginIP,
-		"invite_code":    user.InviteCode,
-		"invited_by":     user.InvitedBy,
-		"checkin_last":   user.CheckinLast,
-		"checkin_streak": user.CheckinStreak,
-		"api_keys":       keys,
-		"has_password":   user.PasswordHash != "",
+		"created_at":           unixSec(user.CreatedAt),
+		"last_login_at":        unixSecPtr(user.LastLoginAt),
+		"last_login_ip":        user.LastLoginIP,
+		"invite_code":          user.InviteCode,
+		"invited_by":           user.InvitedBy,
+		"checkin_last":         user.CheckinLast,
+		"checkin_streak":       user.CheckinStreak,
+		"api_keys":             keys,
+		"has_password":         user.PasswordHash != "",
 	}
 }
 

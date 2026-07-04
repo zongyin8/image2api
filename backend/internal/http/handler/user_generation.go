@@ -225,6 +225,11 @@ func (h *UserGenerationHandler) Logs(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"detail": "failed to load logs"})
 		return
 	}
+	modelByID, err := h.admin.ModelNameMap(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": "failed to load logs"})
+		return
+	}
 
 	out := make([]gin.H, 0, len(items))
 	for _, item := range items {
@@ -249,7 +254,7 @@ func (h *UserGenerationHandler) Logs(c *gin.Context) {
 			"ts":         item.TS.Unix(),
 			"kind":       item.Kind,
 			"status":     item.Status,
-			"model":      item.Model,
+			"model":      displayModelName(modelByID, item.Model),
 			"provider":   item.Provider,
 			"prompt":     item.Prompt,
 			"ratio":      item.Ratio,
@@ -446,7 +451,7 @@ func (h *UserGenerationHandler) catalogEntries(c *gin.Context) ([]gin.H, error) 
 			"provider":             "runway",
 			"type":                 "video",
 			"ratios":               []string{"16:9", "9:16", "1:1", "4:3", "3:4", "21:9"},
-			"resolutions":          []string{"2K"},
+			"resolutions":          []string{"720p"},
 			"durations":            []string{"5s", "10s"},
 			"max_reference_images": 1,
 			"reference_mode":       "frame",
@@ -599,7 +604,7 @@ func (h *UserGenerationHandler) publicModels() ([]gin.H, error) {
 			"provider":    "runway",
 			"kind":        "video",
 			"ratios":      []string{"16:9", "9:16", "1:1", "4:3", "3:4", "21:9"},
-			"resolutions": []string{"2K"},
+			"resolutions": []string{"720p"},
 			"description": "Runway Gen-4 Turbo video",
 			"stub":        false,
 		},
