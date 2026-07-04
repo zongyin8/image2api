@@ -79,9 +79,9 @@ services:
       RUSTFS_ACCESS_KEY: vividai
       RUSTFS_SECRET_KEY: vividai-secret-change-me
       # Set to the URL your reverse proxy serves the site on (comma-separated).
-      CORS_ORIGINS: http://localhost:2000
+      CORS_ORIGINS: https://grok.2s21.cc
       # true only if your reverse proxy serves HTTPS; false for plain HTTP.
-      COOKIE_SECURE: "false"
+      COOKIE_SECURE: "true"
     volumes:
       - generated:/app/data/generated
     depends_on:

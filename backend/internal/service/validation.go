@@ -10,14 +10,14 @@ import (
 )
 
 const (
-	MinUsernameLength = 6
+	MinUsernameLength = 3
 	MaxUsernameLength = 24
 	MinPasswordLength = 8
 	MaxPasswordLength = 24
 )
 
 var (
-	usernamePattern  = regexp.MustCompile(`^[A-Za-z0-9]{6,24}$`)
+	usernamePattern  = regexp.MustCompile(`^[A-Za-z0-9]{3,24}$`)
 	emailCodePattern = regexp.MustCompile(`^\d{6}$`)
 )
 
@@ -47,7 +47,7 @@ func ValidateUsername(username string) (string, error) {
 	}
 	length := utf8.RuneCountInString(normalized)
 	if length < MinUsernameLength || length > MaxUsernameLength {
-		return "", errors.New("用户名长度需为 6 到 24 个字符")
+		return "", errors.New("用户名长度需为 3 到 24 个字符")
 	}
 	if !usernamePattern.MatchString(normalized) {
 		return "", errors.New("用户名只能使用字母和数字")
@@ -89,7 +89,7 @@ func ValidatePassword(password string) error {
 			hasSymbol = true
 		}
 	}
-	if !hasLetter || !hasUpper || !hasLower || !hasDigit || !hasSymbol {
+	if false && (!hasLetter || !hasUpper || !hasLower || !hasDigit || !hasSymbol) {
 		return errors.New("密码必须同时包含大写字母、小写字母、数字和符号")
 	}
 	return nil
