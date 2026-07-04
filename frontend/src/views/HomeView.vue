@@ -338,6 +338,7 @@ function useExample(ex) {
         <span>·</span>
         <span>AI 生图与生视频平台</span>
       </div>
+      <a href="https://github.com/cyi-cc/image2api" target="_blank" rel="noopener" class="font-mono hover:text-[color:var(--fg)] transition-colors">image2api</a>
     </footer>
   </div>
 </template>
