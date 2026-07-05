@@ -18,7 +18,7 @@ const tabs = [
   { label: '订单管理', to: '/admin/orders',   icon: 'receipt' },
   { label: '兑换码管理', to: '/admin/cdks',   icon: 'spark' },
   { label: '邀请日志', to: '/admin/invites',  icon: 'accounts' },
-  { label: '图片管理', to: '/admin/images',   icon: 'files' },
+  { label: '作品管理', to: '/admin/images',   icon: 'files' },
   { label: '首页内容', to: '/admin/showcase', icon: 'spark' },
   { label: '日志管理', to: '/admin/logs',     icon: 'log' },
   { label: '系统配置', to: '/admin/config',   icon: 'config' },

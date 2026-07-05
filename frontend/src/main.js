@@ -61,7 +61,7 @@ const routes = [
       { path: 'orders', component: AdminOrdersView, meta: { label: '订单管理' } },
       { path: 'cdks',     component: CdksView,     meta: { label: '兑换码管理' } },
       { path: 'invites',  component: InvitesAdminView, meta: { label: '邀请日志' } },
-      { path: 'images',   component: ImagesView,   meta: { label: '图片管理' } },
+      { path: 'images',   component: ImagesView,   meta: { label: '作品管理' } },
       { path: 'showcase', component: ShowcaseView, meta: { label: '首页内容' } },
       { path: 'logs',     component: LogsView,     meta: { label: '日志管理' } },
       { path: 'config',   component: ConfigView,   meta: { label: '系统配置' } },

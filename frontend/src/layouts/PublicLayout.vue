@@ -65,11 +65,11 @@ const currentLabel = computed(() => {
           v-for="n in nav" :key="n.to" :to="n.to"
           :exact-active-class="n.to === '/' ? 'active' : ''"
           :active-class="n.to === '/' ? '' : 'active'"
+          :title="n.label"
           class="rail-link group">
           <span class="w-10 h-10 rounded-xl grid place-items-center transition-all ring-1 ring-transparent group-hover:bg-[var(--hover)] group-hover:ring-[color:var(--hairline)]">
             <Icon :name="n.icon" class="w-4 h-4 transition-colors" />
           </span>
-          <span class="rail-label">{{ n.label }}</span>
         </router-link>
       </nav>
 
@@ -139,7 +139,6 @@ const currentLabel = computed(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.5rem;
   padding: 0.25rem 0;
   color: var(--fg-3);
   transition: color 0.15s ease;
@@ -163,11 +162,6 @@ const currentLabel = computed(() => {
 .rail-link.active > span:first-child {
   background: var(--hover) !important;
   --tw-ring-color: var(--hairline);
-}
-.rail-label {
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  font-weight: 500;
 }
 
 .rail-bottom {
