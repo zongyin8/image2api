@@ -45,6 +45,18 @@ type BannedWord struct {
 	UpdatedAt time.Time
 }
 
+// BannedWordHit records one blocked request: which word matched, who sent it,
+// and when. Feeds the admin 违禁词触发列表.
+type BannedWordHit struct {
+	ID        string `gorm:"primaryKey;size:32"`
+	WordID    string `gorm:"size:32;index"`
+	Word      string `gorm:"size:255;index;not null"`
+	UserID    string `gorm:"size:32;index"`
+	UserName  string `gorm:"size:255"` // snapshot of name/email at hit time
+	Prompt    string `gorm:"type:text"`
+	CreatedAt time.Time `gorm:"index"`
+}
+
 type APIKey struct {
 	ID         string `gorm:"primaryKey;size:32"`
 	UserID     string `gorm:"size:32;index;not null"`
@@ -219,6 +231,7 @@ func AutoMigrateModels() []any {
 	return []any{
 		&User{},
 		&BannedWord{},
+		&BannedWordHit{},
 		&APIKey{},
 		&ShowcaseItem{},
 		&EventLog{},

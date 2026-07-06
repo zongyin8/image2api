@@ -112,7 +112,7 @@ func (s *AdminReadService) ModelsView(ctx context.Context) ([]map[string]any, er
 	return out, nil
 }
 
-func (s *AdminReadService) Logs(ctx context.Context, limit, offset int, kind, status string, statuses []string, since *time.Time, userID, excludeSource, source string, hasFile, excludeShowcase, mediaOnly bool) ([]model.EventLog, int64, *repo.EventStats, error) {
+func (s *AdminReadService) Logs(ctx context.Context, limit, offset int, kind, status string, statuses []string, since *time.Time, userID string, userIDs []string, query, excludeSource, source string, hasFile, excludeShowcase, mediaOnly bool) ([]model.EventLog, int64, *repo.EventStats, error) {
 	var excludeFiles []string
 	if excludeShowcase {
 		excludeFiles = s.showcaseFileList(ctx)
@@ -125,6 +125,8 @@ func (s *AdminReadService) Logs(ctx context.Context, limit, offset int, kind, st
 		Statuses:      statuses,
 		Since:         since,
 		UserID:        userID,
+		UserIDs:       userIDs,
+		Query:         query,
 		ExcludeSource: excludeSource,
 		Source:        source,
 		HasFile:       hasFile,
@@ -145,6 +147,30 @@ func (s *AdminReadService) Logs(ctx context.Context, limit, offset int, kind, st
 		return nil, 0, nil, err
 	}
 	return items, total, stats, nil
+}
+
+// MatchUserIDs resolves an admin 用户搜索 term to the set of user ids whose
+// name, email or id contains the term (case-insensitive). Returns a non-nil,
+// possibly empty slice — an empty slice means "no user matched" and the caller
+// should return zero rows rather than dropping the filter.
+func (s *AdminReadService) MatchUserIDs(ctx context.Context, term string) ([]string, error) {
+	term = strings.ToLower(strings.TrimSpace(term))
+	if term == "" {
+		return nil, nil
+	}
+	users, err := s.users.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := []string{}
+	for _, u := range users {
+		if strings.Contains(strings.ToLower(u.Name), term) ||
+			strings.Contains(strings.ToLower(u.Email), term) ||
+			strings.Contains(strings.ToLower(u.ID), term) {
+			out = append(out, u.ID)
+		}
+	}
+	return out, nil
 }
 
 // UserNameMap builds an id -> display name lookup (name, else email, else id)

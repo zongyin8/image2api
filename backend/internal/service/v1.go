@@ -268,11 +268,15 @@ func (s *V1Service) checkBannedPrompt(ctx context.Context, principal *APIPrincip
 		if term == "" || !strings.Contains(lower, term) {
 			continue
 		}
-		userID := ""
+		userID, userName := "", ""
 		if principal != nil && principal.User != nil {
 			userID = principal.User.ID
+			userName = principal.User.Name
+			if userName == "" {
+				userName = principal.User.Email
+			}
 		}
-		s.banned.RecordHit(ctx, w.ID, userID)
+		s.banned.RecordHit(ctx, w.ID, w.Word, userID, userName, prompt)
 		return fmt.Errorf("%w: banned word \"%s\"", ErrBannedPrompt, w.Word)
 	}
 	return nil

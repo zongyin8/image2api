@@ -77,6 +77,30 @@ func (h *BannedWordsHandler) Import(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"added": added, "skipped": skipped})
 }
 
+// Hits — 违禁词触发列表: who triggered which word and when, newest first,
+// with server-side pagination + ?q= search (违禁词/用户名/提示词, 跨页).
+func (h *BannedWordsHandler) Hits(c *gin.Context) {
+	limit := parseInt(c.Query("limit"), 50)
+	offset := parseInt(c.Query("offset"), 0)
+	items, total, err := h.words.ListHits(c.Request.Context(), strings.TrimSpace(c.Query("q")), limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": "failed to load banned word hits"})
+		return
+	}
+	out := make([]gin.H, 0, len(items))
+	for _, hit := range items {
+		out = append(out, gin.H{
+			"id":         hit.ID,
+			"word":       hit.Word,
+			"user_id":    hit.UserID,
+			"user_name":  hit.UserName,
+			"prompt":     hit.Prompt,
+			"created_at": hit.CreatedAt,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"data": out, "total": total})
+}
+
 func (h *BannedWordsHandler) Delete(c *gin.Context) {
 	n, err := h.words.Delete(c.Request.Context(), c.Param("id"))
 	if err != nil {

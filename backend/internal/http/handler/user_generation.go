@@ -229,7 +229,21 @@ func (h *UserGenerationHandler) Logs(c *gin.Context) {
 	// media=1 (画图台 grid): only pending rows or rows with a stored file, so a
 	// deleted work's blanked row doesn't consume one of the grid's slots.
 	mediaOnly := c.Query("media") == "1"
-	items, total, stats, err := h.admin.Logs(c.Request.Context(), limit, offset, kind, status, statuses, nil, userID, excludeSource, source, hasFile, excludeShowcase, mediaOnly)
+	// ?user= — admin-only 用户搜索 (the 日志管理 page with scope=all). Ignored for
+	// normal users, whose rows are already pinned to their own userID.
+	var userIDs []string
+	if term := strings.TrimSpace(c.Query("user")); term != "" && userID == "" {
+		ids, uerr := h.admin.MatchUserIDs(c.Request.Context(), term)
+		if uerr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"detail": "failed to load logs"})
+			return
+		}
+		if len(ids) == 0 {
+			ids = []string{"__no_match__"}
+		}
+		userIDs = ids
+	}
+	items, total, stats, err := h.admin.Logs(c.Request.Context(), limit, offset, kind, status, statuses, nil, userID, userIDs, strings.TrimSpace(c.Query("q")), excludeSource, source, hasFile, excludeShowcase, mediaOnly)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"detail": "failed to load logs"})
 		return
@@ -264,13 +278,18 @@ func (h *UserGenerationHandler) Logs(c *gin.Context) {
 		} else {
 			userName = item.UserID
 		}
-		var accountName any
-		if item.AccountID != "" {
-			if label, ok := accountByID[item.AccountID]; ok {
-				accountName = label
-			} else {
-				accountName = item.AccountID
+		// Provider account identity is admin-only: normal users must not see
+		// which upstream account (email) fulfilled their generation.
+		var accountName, accountID any
+		if userID == "" {
+			if item.AccountID != "" {
+				if label, ok := accountByID[item.AccountID]; ok {
+					accountName = label
+				} else {
+					accountName = item.AccountID
+				}
 			}
+			accountID = emptyStringNil(item.AccountID)
 		}
 		out = append(out, gin.H{
 			"id":         item.ID,
@@ -287,7 +306,7 @@ func (h *UserGenerationHandler) Logs(c *gin.Context) {
 			"source":     emptyStringNil(item.Source),
 			"user_id":    emptyStringNil(item.UserID),
 			"user_name":  userName,
-			"account_id": emptyStringNil(item.AccountID),
+			"account_id": accountID,
 			"account":    accountName,
 			"cost":       item.Cost,
 			"elapsed_ms": item.ElapsedMS,

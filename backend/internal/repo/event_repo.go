@@ -22,6 +22,8 @@ type EventListFilter struct {
 	Statuses      []string // multiple statuses (status IN (?)) — used by the 画图台 grid
 	Since         *time.Time
 	UserID        string
+	UserIDs       []string // when set, keep ONLY rows whose user_id is in this list (admin 用户搜索)
+	Query         string   // free-text search over prompt / model / error (server-side, 跨页)
 	ExcludeSource string // when set, omit rows with this source (e.g. hide API-key "v1" usage from the customer logs page)
 	Source        string // when set, keep ONLY rows with this source (admin 来源 filter): "v1" (API key) / "user" (前台) / "admin" (测试模型)
 	HasFile       bool     // when true, keep ONLY rows with a non-empty file (the 创作记录 gallery — paginates over real media)
@@ -58,6 +60,13 @@ func (r *EventRepository) List(ctx context.Context, filter EventListFilter) ([]m
 	}
 	if filter.UserID != "" {
 		q = q.Where("user_id = ?", filter.UserID)
+	}
+	if len(filter.UserIDs) > 0 {
+		q = q.Where("user_id IN ?", filter.UserIDs)
+	}
+	if term := strings.TrimSpace(filter.Query); term != "" {
+		like := "%" + term + "%"
+		q = q.Where("(prompt ILIKE ? OR model ILIKE ? OR error ILIKE ?)", like, like, like)
 	}
 	if filter.ExcludeSource != "" {
 		q = q.Where("(source IS NULL OR source <> ?)", filter.ExcludeSource)

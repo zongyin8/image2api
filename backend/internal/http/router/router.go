@@ -144,6 +144,7 @@ func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.
 		authed.POST("/banned-words", handlers.BannedWords.Create)
 		authed.POST("/banned-words/import", handlers.BannedWords.Import)
 		authed.DELETE("/banned-words/:id", handlers.BannedWords.Delete)
+		authed.GET("/banned-word-hits", handlers.BannedWords.Hits)
 		authed.GET("/refresh/profiles", handlers.ProviderAdmin.RefreshProfiles)
 		authed.POST("/refresh/profiles/:profile_id/refresh-now", handlers.ProviderAdmin.RefreshNow)
 		authed.PATCH("/refresh/profiles/:profile_id", handlers.ProviderAdmin.RefreshUpdate)

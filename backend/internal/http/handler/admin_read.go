@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"backend/internal/model"
@@ -57,7 +58,23 @@ func (h *AdminReadHandler) Logs(c *gin.Context) {
 		}
 	}
 
-	items, total, stats, err := h.admin.Logs(c.Request.Context(), limit, offset, kind, status, nil, since, "", "", c.Query("source"), false, false, false)
+	// ?user= — server-side 用户搜索: resolve the term to matching user ids
+	// (name/email/id contains, case-insensitive) and filter rows to those users.
+	// A term that matches nobody must return zero rows, not the unfiltered list.
+	var userIDs []string
+	if term := strings.TrimSpace(c.Query("user")); term != "" {
+		ids, uerr := h.admin.MatchUserIDs(c.Request.Context(), term)
+		if uerr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"detail": "failed to load logs"})
+			return
+		}
+		if len(ids) == 0 {
+			ids = []string{"__no_match__"}
+		}
+		userIDs = ids
+	}
+
+	items, total, stats, err := h.admin.Logs(c.Request.Context(), limit, offset, kind, status, nil, since, "", userIDs, strings.TrimSpace(c.Query("q")), "", c.Query("source"), false, false, false)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"detail": "failed to load logs"})
 		return

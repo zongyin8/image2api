@@ -79,7 +79,7 @@ func (h *PaymentHandler) MyOrders(c *gin.Context) {
 	}
 	limit := parseInt(c.Query("limit"), 20)
 	offset := parseInt(c.Query("offset"), 0)
-	orders, total, err := h.pay.ListByUser(c.Request.Context(), user.ID, c.Query("status"), limit, offset)
+	orders, total, err := h.pay.ListByUser(c.Request.Context(), user.ID, c.Query("status"), strings.TrimSpace(c.Query("q")), limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"detail": "failed to load orders"})
 		return
@@ -129,7 +129,7 @@ func (h *PaymentHandler) AdminOrders(c *gin.Context) {
 	status := c.Query("status")
 	limit := parseInt(c.Query("limit"), 100)
 	offset := parseInt(c.Query("offset"), 0)
-	orders, total, err := h.pay.ListAll(c.Request.Context(), status, limit, offset)
+	orders, total, err := h.pay.ListAll(c.Request.Context(), status, strings.TrimSpace(c.Query("q")), limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"detail": "failed to load orders"})
 		return

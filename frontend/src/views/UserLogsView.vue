@@ -34,22 +34,16 @@ async function load() {
     source: 'user', // 创作记录 = 画图台作品;排除 API(v1,无存储文件)+ 测试
   })
   if (kindFilter.value) qs.set('kind', kindFilter.value)
+  if (search.value.trim()) qs.set('q', search.value.trim())
   const r = await api('/logs?' + qs.toString())
   items.value = (r.data?.data || []).filter((e) => e.status === 'success' && e.file)
   total.value = Number(r.data?.total ?? items.value.length)
   loading.value = false
 }
 
-// Search narrows the CURRENT page (same as the admin 日志 page); the numbered
-// pager still reflects the full server-side total.
-const filtered = computed(() => {
-  const q = search.value.trim().toLowerCase()
-  if (!q) return items.value
-  return items.value.filter((e) =>
-    (e.model || '').toLowerCase().includes(q) ||
-    (e.prompt || '').toLowerCase().includes(q),
-  )
-})
+// 搜索走服务端(跨页)，直接展示服务端返回的当页结果。
+const filtered = computed(() => items.value)
+function doSearch() { page.value = 1; load() }
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 function setKind(v) { kindFilter.value = v; page.value = 1; load() }
@@ -260,7 +254,8 @@ onUnmounted(() => {
                 :class="kindFilter === 'video' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'">视频</button>
       </div>
       <div class="flex-1 min-w-[180px]">
-        <input v-model="search" class="field !py-1.5 text-xs" placeholder="搜索提示词或模型…" />
+        <input v-model="search" @keyup.enter="doSearch" @change="doSearch"
+               class="field !py-1.5 text-xs" placeholder="搜索提示词或模型…" />
       </div>
       <button @click="togglePickAll" class="text-xs rounded-lg px-2.5 py-1.5 transition-colors inline-flex items-center gap-1"
               :class="pageAllPicked ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'">
