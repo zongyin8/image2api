@@ -104,11 +104,17 @@ func (c *Client) GenerateImage(ctx context.Context, accessToken, prompt, model, 
 	if err != nil {
 		return nil, nil, err
 	}
+	// The SSE stream and conversation JSON echo the user's uploaded reference
+	// assets; treating those ids as "the generated image" would return the
+	// reference itself. Drop them from every id set we collect.
+	refIDs := uploadedRefIDSet(uploadedRefs)
+	fileIDs = dropIDs(fileIDs, refIDs)
+	sedimentIDs = dropIDs(sedimentIDs, refIDs)
 	session, err = c.newSession(accessToken)
 	if err != nil {
 		return nil, nil, err
 	}
-	fileIDs, sedimentIDs, err = c.pollForImage(ctx, session, accessToken, conversationID, fileIDs, sedimentIDs, pollBudget(ctx))
+	fileIDs, sedimentIDs, err = c.pollForImage(ctx, session, accessToken, conversationID, fileIDs, sedimentIDs, refIDs, pollBudget(ctx))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -915,10 +921,10 @@ func pollBudget(ctx context.Context) time.Duration {
 	return budget
 }
 
-func (c *Client) pollForImage(ctx context.Context, session tlsclient.HttpClient, accessToken, conversationID string, initialFileIDs, initialSedimentIDs []string, timeout time.Duration) ([]string, []string, error) {
+func (c *Client) pollForImage(ctx context.Context, session tlsclient.HttpClient, accessToken, conversationID string, initialFileIDs, initialSedimentIDs []string, refIDs map[string]bool, timeout time.Duration) ([]string, []string, error) {
 	start := time.Now()
-	fileIDs := append([]string{}, initialFileIDs...)
-	sedimentIDs := append([]string{}, initialSedimentIDs...)
+	fileIDs := dropIDs(append([]string{}, initialFileIDs...), refIDs)
+	sedimentIDs := dropIDs(append([]string{}, initialSedimentIDs...), refIDs)
 	if len(fileIDs) == 0 {
 		time.Sleep(8 * time.Second)
 	} else {
@@ -942,8 +948,8 @@ func (c *Client) pollForImage(ctx context.Context, session tlsclient.HttpClient,
 			return nil, nil, err
 		}
 		newFiles, newSeds := extractImageIDs(conv)
-		fileIDs = mergeStrings(fileIDs, newFiles)
-		sedimentIDs = mergeStrings(sedimentIDs, newSeds)
+		fileIDs = mergeStrings(fileIDs, dropIDs(newFiles, refIDs))
+		sedimentIDs = mergeStrings(sedimentIDs, dropIDs(newSeds, refIDs))
 		// Fail fast on a content-audit refusal: the assistant turn carries the
 		// rejection text and no image will ever land, so polling to timeout only
 		// wastes the whole budget. Only bail while we have no asset yet.
@@ -955,14 +961,42 @@ func (c *Client) pollForImage(ctx context.Context, session tlsclient.HttpClient,
 			conv, err = c.getConversation(ctx, session, accessToken, conversationID)
 			if err == nil {
 				finalFiles, finalSeds := extractImageIDs(conv)
-				fileIDs = mergeStrings(fileIDs, finalFiles)
-				sedimentIDs = mergeStrings(sedimentIDs, finalSeds)
+				fileIDs = mergeStrings(fileIDs, dropIDs(finalFiles, refIDs))
+				sedimentIDs = mergeStrings(sedimentIDs, dropIDs(finalSeds, refIDs))
 			}
 			return fileIDs, sedimentIDs, nil
 		}
 		time.Sleep(5 * time.Second)
 	}
 	return nil, nil, errors.New("image poll timeout")
+}
+
+// uploadedRefIDSet collects every id belonging to the user's uploaded
+// reference images so they can be excluded from generated-asset extraction.
+func uploadedRefIDSet(refs []uploadedReference) map[string]bool {
+	ids := make(map[string]bool, len(refs)*2)
+	for _, ref := range refs {
+		if ref.FileID != "" {
+			ids[ref.FileID] = true
+		}
+		if ref.LibraryFileID != "" {
+			ids[ref.LibraryFileID] = true
+		}
+	}
+	return ids
+}
+
+func dropIDs(ids []string, exclude map[string]bool) []string {
+	if len(exclude) == 0 || len(ids) == 0 {
+		return ids
+	}
+	out := ids[:0]
+	for _, id := range ids {
+		if !exclude[id] {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 func (c *Client) getFileDownloadURL(ctx context.Context, session tlsclient.HttpClient, accessToken, conversationID, fileID string, inline bool) (string, error) {
