@@ -968,10 +968,13 @@ func (s *TokenService) RefreshGrokLiveness(ctx context.Context) {
 		}
 		sub, serr := s.grok.FetchSubscription(ctx, it.Value)
 		if serr != nil {
-			if errors.Is(serr, grok.ErrAuth) {
-				_, _ = s.tokens.Update(ctx, "grok", it.ID, map[string]any{"status": "disabled", "dead": true})
-			}
-			continue // transient upstream error → leave as-is, retry next tick
+			// Any probe error — including 401/403 (ErrAuth) — is treated as
+			// transient: leave the account as-is and retry next tick. A grok sso
+			// can momentarily 401 (upstream blip / proxy hiccup / anti-bot) while
+			// still being fully valid, so a single auth failure must NOT kill a
+			// live account. Genuine membership loss is still caught below via an
+			// INACTIVE/empty subscription (!sub.Member).
+			continue
 		}
 		if sub == nil || !sub.Member {
 			// no ACTIVE subscription (INACTIVE / empty) → membership lapsed → dead.
@@ -980,9 +983,8 @@ func (s *TokenService) RefreshGrokLiveness(ctx context.Context) {
 		}
 		data, derr := s.grok.FetchCreditsBalance(ctx, it.Value)
 		if derr != nil {
-			if errors.Is(derr, grok.ErrAuth) {
-				_, _ = s.tokens.Update(ctx, "grok", it.ID, map[string]any{"status": "disabled", "dead": true})
-			}
+			// Same policy as the subscription probe: a credits-balance 401/403 is
+			// transient, never a reason to kill a live account. Skip and retry.
 			continue
 		}
 		meta := cloneJSONMap(it.Meta)

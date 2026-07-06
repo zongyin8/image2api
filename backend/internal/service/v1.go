@@ -3085,7 +3085,10 @@ func (s *V1Service) markTokenFailure(ctx context.Context, pool string, token mod
 		// the cookie. chatgpt/runway/leonardo auth means the stored credential is
 		// dead — a raw JWT (chatgpt/runway) or a cookie whose session no longer
 		// authenticates (leonardo) — there's nothing left to refresh from.
-		if pool == "chatgpt" || pool == "runway" || pool == "leonardo" || pool == "krea" || pool == "imagine" || pool == "grok" {
+		// grok is intentionally excluded: a grok sso can momentarily 401 while
+		// still valid (upstream blip / proxy / anti-bot), so an auth failure just
+		// fails over for this request without permanently killing the account.
+		if pool == "chatgpt" || pool == "runway" || pool == "leonardo" || pool == "krea" || pool == "imagine" {
 			patch["status"] = "disabled"
 			patch["dead"] = true
 		}
