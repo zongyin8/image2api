@@ -8,7 +8,7 @@ const total = ref(0)
 const loading = ref(false)
 const search = ref('')
 const page = ref(1)
-const pageSize = 50
+const pageSize = 20
 
 async function load() {
   loading.value = true
