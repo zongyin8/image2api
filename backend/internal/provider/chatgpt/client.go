@@ -943,7 +943,7 @@ func (c *Client) pollForImage(ctx context.Context, session tlsclient.HttpClient,
 		// Fail fast on a content-audit refusal: the assistant turn carries the
 		// rejection text and no image will ever land, so polling to timeout only
 		// wastes the whole budget. Only bail while we have no asset yet.
-		if len(fileIDs) == 0 && len(sedimentIDs) == 0 && conversationRejected(conv) {
+		if len(fileIDs) == 0 && len(sedimentIDs) == 0 && (conversationRejected(conv) || conversationEndedWithoutImage(conv)) {
 			return nil, nil, ErrContentPolicy
 		}
 		if len(fileIDs) > 0 || len(sedimentIDs) > 0 {

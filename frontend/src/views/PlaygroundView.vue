@@ -190,9 +190,8 @@ function onFiles(ev) {
   if (ev.target) ev.target.value = ''
 }
 // Shared by the file picker AND drag-and-drop. Filters to images, honors the
-// per-model max + 20MB cap. The preview renders the picked file directly via an
-// object URL (browser scales it down, no base64 copy in the DOM); the ORIGINAL
-// file is kept untouched and is what gets uploaded at submit time.
+// per-model max + 20MB cap. The preview shows a small downscaled thumbnail;
+// the ORIGINAL file is kept untouched and is what gets uploaded at submit time.
 function addFiles(files) {
   files = files.filter((f) => f && f.type && f.type.startsWith('image/'))
   const room = Math.max(0, maxRefs.value - refImages.value.length)
@@ -201,13 +200,53 @@ function addFiles(files) {
   for (const f of files) {
     if (added >= room) break
     if (f.size > MAX_REF_BYTES) { tooBig.push(f.name); continue }
-    refImages.value.push({ name: f.name, file: f, thumb: URL.createObjectURL(f) })
+    makeThumb(f).then((thumb) => {
+      if (thumb) { refImages.value.push({ name: f.name, file: f, thumb }); return }
+      // thumbnail failed (odd format) — fall back to the full data URL preview
+      const reader = new FileReader()
+      reader.onload = () => refImages.value.push({ name: f.name, file: f, dataUrl: reader.result })
+      reader.readAsDataURL(f)
+    })
     added++
   }
   error.value = tooBig.length
     ? `图片超过 20MB 已跳过：${tooBig.join('、')}（请压缩后再传）`
     : ''
 }
+// Downscale an image blob/file to a small display-only thumbnail so the DOM
+// never holds a multi-MB original just to render an 80px preview. The original
+// bytes are untouched — uploads always use the source file/URL.
+function makeThumb(blob, maxSide = 320) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(blob)
+    const img = new Image()
+    img.onload = () => {
+      try {
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height))
+        const w = Math.max(1, Math.round(img.width * scale))
+        const h = Math.max(1, Math.round(img.height * scale))
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+        resolve(canvas.toDataURL('image/jpeg', 0.8))
+      } catch {
+        resolve('')
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); resolve('') }
+    img.src = url
+  })
+}
+
+// URL-backed refs (restored / 加入参考图) preview via the server-generated
+// thumbnail object (url + '.thumb.jpg', ≤512px). The serving route falls back
+// to the original when the thumb is missing, so this is always safe. The plain
+// url remains what gets re-submitted.
+function serverThumb(u) { return u + '.thumb.jpg' }
+
 // Drag-and-drop onto the reference area.
 const dragOver = ref(false)
 function onDrop(ev) {
@@ -225,10 +264,7 @@ function onDragLeave(ev) {
   if (ev.currentTarget.contains(ev.relatedTarget)) return
   dragOver.value = false
 }
-function removeRef(i) {
-  const [gone] = refImages.value.splice(i, 1)
-  if (gone?.thumb?.startsWith('blob:')) URL.revokeObjectURL(gone.thumb)
-}
+function removeRef(i) { refImages.value.splice(i, 1) }
 
 // Re-hydrate reference thumbnails from server URLs (after a reload). Fetches
 // each /images URL (same-origin, cookie-authed) and converts to a data URL so
@@ -240,7 +276,7 @@ function removeRef(i) {
 function restoreRefs(urls) {
   if (!Array.isArray(urls) || !urls.length) return
   if (refImages.value.length) return   // don't clobber refs the user already added
-  refImages.value = urls.map((u) => ({ name: 'ref', url: u }))
+  refImages.value = urls.map((u) => ({ name: 'ref', url: u, thumb: serverThumb(u) }))
 }
 
 // refToBase64 yields the raw base64 the backend expects, from a freshly picked
@@ -465,7 +501,7 @@ function useAsRef(item) {
   if (item.kind === 'video') return
   const cap = maxRefs.value
   if (cap <= 0) { flash('当前模型不支持参考图'); return }
-  const ref = { name: 'ref', url: item.url }
+  const ref = { name: 'ref', url: item.url, thumb: serverThumb(item.url) }
   if (cap === 1) {
     refImages.value = [ref]
   } else if (refImages.value.length >= cap) {

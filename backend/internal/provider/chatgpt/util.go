@@ -129,6 +129,62 @@ func conversationRejected(conversation map[string]any) bool {
 	return false
 }
 
+// conversationEndedWithoutImage reports whether the model finished its turn
+// with a plain-text answer and never engaged the async image pipeline (no tool
+// turn, no image_gen task). ChatGPT localizes audit refusals, so this catches
+// rejections in ANY language structurally: a closed text-only turn can never
+// produce an image, and polling further only burns the budget.
+func conversationEndedWithoutImage(conversation map[string]any) bool {
+	mapping, _ := conversation["mapping"].(map[string]any)
+	if len(mapping) == 0 {
+		return false
+	}
+	for _, rawNode := range mapping {
+		node, _ := rawNode.(map[string]any)
+		message, _ := node["message"].(map[string]any)
+		if message == nil {
+			continue
+		}
+		if metadata, _ := message["metadata"].(map[string]any); metadata != nil {
+			if stringValue(metadata["image_gen_task_id"]) != "" || metadata["image_gen_async"] == true {
+				return false
+			}
+		}
+		author, _ := message["author"].(map[string]any)
+		role := strings.ToLower(strings.TrimSpace(stringValue(author["role"])))
+		if role == "tool" {
+			return false
+		}
+		if role == "assistant" {
+			if content, _ := message["content"].(map[string]any); content != nil {
+				if ct := stringValue(content["content_type"]); ct != "" && ct != "text" {
+					return false // code/multimodal turn — generation underway
+				}
+			}
+		}
+	}
+	for _, rawNode := range mapping {
+		node, _ := rawNode.(map[string]any)
+		message, _ := node["message"].(map[string]any)
+		if message == nil {
+			continue
+		}
+		author, _ := message["author"].(map[string]any)
+		if strings.ToLower(strings.TrimSpace(stringValue(author["role"]))) != "assistant" {
+			continue
+		}
+		if message["end_turn"] != true || stringValue(message["status"]) != "finished_successfully" {
+			continue
+		}
+		var sb strings.Builder
+		collectText(message["content"], &sb)
+		if strings.TrimSpace(sb.String()) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func stringValue(v any) string {
 	switch x := v.(type) {
 	case string:
