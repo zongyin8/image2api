@@ -37,7 +37,20 @@ var (
 	ErrQuotaExhausted    = errors.New("adobe quota exhausted")
 	ErrTemporaryUpstream = errors.New("adobe upstream temporary error")
 	ErrDeadUpstream      = errors.New("adobe upstream fatal error")
+	// ErrContentRejected is Adobe's content-safety filter refusing the prompt or
+	// the generated image (HTTP 451 image_unsafe). It is the prompt's fault, not
+	// the account's — every account rejects the same content — so the caller must
+	// surface it as-is without penalizing/killing the account or failing over.
+	ErrContentRejected = errors.New("adobe content rejected")
 )
+
+// isContentRejection reports whether an Adobe response (status + body) is a
+// content-safety refusal rather than a genuine upstream/account failure. Adobe
+// returns HTTP 451 with an "*_unsafe" error_code when moderation blocks the
+// prompt or the produced image.
+func isContentRejection(status int, body string) bool {
+	return status == 451 && strings.Contains(body, "unsafe")
+}
 
 var profileURLs = []string{
 	"https://ims-na1.adobelogin.com/ims/profile/v1",
@@ -189,9 +202,14 @@ func (c *Client) GenerateImage(ctx context.Context, token, modelID, prompt, aspe
 		}
 		lastBody = respBody
 		lastErr = err
-		if errors.Is(err, ErrAuth) || errors.Is(err, ErrQuotaExhausted) {
+		if errors.Is(err, ErrAuth) || errors.Is(err, ErrQuotaExhausted) || errors.Is(err, ErrContentRejected) {
 			return nil, nil, err
 		}
+	}
+	// Content-safety refusal: the prompt/image is blocked, retrying other payloads
+	// or accounts is pointless — surface it as-is so the pool doesn't fail over.
+	if errors.Is(lastErr, ErrContentRejected) {
+		return nil, nil, fmt.Errorf("%w: adobe submit: %s", ErrContentRejected, clip(lastBody, 300))
 	}
 	// Preserve the temporary classification so the pool retries (overload / 5xx /
 	// rate-limit) instead of failing the request outright.
@@ -471,6 +489,9 @@ func (c *Client) submitImage(ctx context.Context, sess *tlsSession, token, promp
 	if b := string(respBody); strings.Contains(b, "system under load") || strings.Contains(b, "timeout_error") {
 		return respBody, "", ErrTemporaryUpstream
 	}
+	if isContentRejection(resp.StatusCode, string(respBody)) {
+		return respBody, "", ErrContentRejected
+	}
 	if resp.StatusCode == 429 || resp.StatusCode == 451 || resp.StatusCode >= 500 {
 		return respBody, "", ErrDeadUpstream
 	}
@@ -536,6 +557,9 @@ func (c *Client) pollImage(ctx context.Context, sess *tlsSession, token, pollURL
 		}
 		if b := string(body); strings.Contains(b, "system under load") || strings.Contains(b, "timeout_error") {
 			return nil, nil, ErrTemporaryUpstream
+		}
+		if isContentRejection(resp.StatusCode, string(body)) {
+			return nil, nil, fmt.Errorf("%w: %s", ErrContentRejected, clip(body, 300))
 		}
 		if resp.StatusCode == 429 || resp.StatusCode == 451 || resp.StatusCode >= 500 {
 			return nil, nil, ErrDeadUpstream
@@ -640,6 +664,9 @@ func (c *Client) submitVideo(ctx context.Context, sess *tlsSession, token, endpo
 		// it's a bad token, a missing scope, or a WAF/fingerprint block.
 		return respBody, "", fmt.Errorf("%w (%d %s: %s)", ErrAuth, resp.StatusCode, resp.Header.Get("x-access-error"), clip(respBody, 300))
 	}
+	if isContentRejection(resp.StatusCode, string(respBody)) {
+		return respBody, "", ErrContentRejected
+	}
 	if resp.StatusCode == 408 || resp.StatusCode == 429 || resp.StatusCode == 451 || resp.StatusCode >= 500 {
 		return respBody, "", ErrDeadUpstream
 	}
@@ -713,6 +740,9 @@ func (c *Client) pollVideo(ctx context.Context, sess *tlsSession, token, pollURL
 		}
 		if b := string(body); strings.Contains(b, "system under load") || strings.Contains(b, "timeout_error") {
 			return nil, nil, ErrTemporaryUpstream
+		}
+		if isContentRejection(resp.StatusCode, string(body)) {
+			return nil, nil, fmt.Errorf("%w: %s", ErrContentRejected, clip(body, 300))
 		}
 		if resp.StatusCode == 429 || resp.StatusCode == 451 || resp.StatusCode >= 500 {
 			return nil, nil, ErrDeadUpstream

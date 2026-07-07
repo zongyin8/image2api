@@ -1461,6 +1461,7 @@ func (s *V1Service) tryAccount(ctx context.Context, eventID, pool string, token 
 	_ = s.tokens.TouchLastUsed(ctx, token.ID)
 	authRefreshed := false
 	tempAttempts := 0
+	fatalAttempts := 0
 	for {
 		data, err := attempt(token)
 		if err == nil {
@@ -1488,20 +1489,33 @@ func (s *V1Service) tryAccount(ctx context.Context, eventID, pool string, token 
 			s.markTokenFailure(ctx, pool, token, kind, true, false)
 			return nil, err, true, false
 		}
-		if isDead {
+		// Fatal / (temporary under adobe's failover policy) upstream error.
+		if isDead || (isTemp && tempFailover) {
+			if tempFailover {
+				// Ops policy (adobe): NEVER kill on these upstream errors — a
+				// genuinely bad account and a transient Adobe blip (429/5xx/
+				// overload) look the same, and killing wipes healthy accounts.
+				// First retry the SAME account a few times; if still failing, just
+				// record the failure and fail over to the next account (no
+				// disable/dead). The 4th return value caps how many accounts one
+				// request may burn this way (maxTempDeadAccounts) so a pool-wide
+				// blip can't fan a single request across the whole pool.
+				fatalAttempts++
+				if fatalAttempts < maxSameAccountAttempts {
+					select {
+					case <-time.After(time.Duration(fatalAttempts) * time.Second):
+						continue
+					case <-ctx.Done():
+						return nil, err, false, false
+					}
+				}
+				s.markTokenFailure(ctx, pool, token, kind, false, false)
+				return nil, err, true, true
+			}
 			s.markTokenDead(ctx, pool, token, kind)
 			return nil, err, true, true
 		}
 		if isTemp {
-			if tempFailover {
-				// Ops policy (adobe): treat a temporary upstream error the same as
-				// a fatal one — disable+mark the account dead and fail over to the
-				// next. The pool driver caps how many accounts one request may burn
-				// this way (maxTempDeadAccounts) so a pool-wide blip can't fan a
-				// single request across the whole pool in one shot.
-				s.markTokenDead(ctx, pool, token, kind)
-				return nil, err, true, true
-			}
 			tempAttempts++
 			if tempAttempts < maxSameAccountAttempts {
 				// Short linear backoff (1s, 2s) so an overloaded/rate-limited upstream
