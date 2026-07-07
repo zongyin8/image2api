@@ -1385,8 +1385,8 @@ const maxTempDeadAccounts = 3
 //   - tempFailover=false (default): retry the SAME account up to
 //     maxSameAccountAttempts times (not counted); if still failing, STOP
 //     (no fan-out — an upstream-wide blip fails identically everywhere).
-//   - tempFailover=true (adobe): fail over to the next account WITHOUT
-//     penalizing this one (rate-limit/overload isn't the account's fault),
+//   - tempFailover=true (adobe): disable+mark the account dead and fail over
+//     to the next account (ops policy: shed accounts that hit upstream errors),
 //     capped at maxTempDeadAccounts accounts so a pool-wide blip can't fan
 //     a single request out across everything.
 //   - 参数错 / request-level (anything else) → return immediately, no retry, no
@@ -1494,16 +1494,12 @@ func (s *V1Service) tryAccount(ctx context.Context, eventID, pool string, token 
 		}
 		if isTemp {
 			if tempFailover {
-				// Ops policy (adobe): a temporary upstream error ("system under
-				// load" / rate-limit) is NOT the account's fault — record the
-				// failure but keep the account active, and fail over to the next
-				// account. The pool driver caps how many accounts one request may
-				// burn this way (maxTempDeadAccounts).
-				_, _ = s.tokens.Update(ctx, pool, token.ID, map[string]any{
-					"last_used_at": time.Now(),
-					"fail_total":   gorm.Expr("fail_total + 1"),
-					"fails":        gorm.Expr("fails + 1"),
-				})
+				// Ops policy (adobe): treat a temporary upstream error the same as
+				// a fatal one — disable+mark the account dead and fail over to the
+				// next. The pool driver caps how many accounts one request may burn
+				// this way (maxTempDeadAccounts) so a pool-wide blip can't fan a
+				// single request across the whole pool in one shot.
+				s.markTokenDead(ctx, pool, token, kind)
 				return nil, err, true, true
 			}
 			tempAttempts++
