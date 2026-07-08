@@ -181,16 +181,17 @@ function setMode(m) {
 }
 
 function openPicker() { fileInput.value && fileInput.value.click() }
-// Backend rejects reference images over 8MB (maxReferenceImageBytes). Enforce it
+// Backend rejects reference images over 20MB (maxReferenceImageBytes). Enforce it
 // here at pick time so an oversized image fails fast with a clear message instead
 // of charging + failing upstream after the upload.
-const MAX_REF_BYTES = 8 * 1024 * 1024
+const MAX_REF_BYTES = 20 * 1024 * 1024
 function onFiles(ev) {
   addFiles(Array.from(ev.target.files || []))
   if (ev.target) ev.target.value = ''
 }
 // Shared by the file picker AND drag-and-drop. Filters to images, honors the
-// per-model max + 8MB cap, reads each to a data URL.
+// per-model max + 20MB cap. The preview shows a small downscaled thumbnail;
+// the ORIGINAL file is kept untouched and is what gets uploaded at submit time.
 function addFiles(files) {
   files = files.filter((f) => f && f.type && f.type.startsWith('image/'))
   const room = Math.max(0, maxRefs.value - refImages.value.length)
@@ -199,15 +200,53 @@ function addFiles(files) {
   for (const f of files) {
     if (added >= room) break
     if (f.size > MAX_REF_BYTES) { tooBig.push(f.name); continue }
-    const reader = new FileReader()
-    reader.onload = () => refImages.value.push({ name: f.name, dataUrl: reader.result })
-    reader.readAsDataURL(f)
+    makeThumb(f).then((thumb) => {
+      if (thumb) { refImages.value.push({ name: f.name, file: f, thumb }); return }
+      // thumbnail failed (odd format) — fall back to the full data URL preview
+      const reader = new FileReader()
+      reader.onload = () => refImages.value.push({ name: f.name, file: f, dataUrl: reader.result })
+      reader.readAsDataURL(f)
+    })
     added++
   }
   error.value = tooBig.length
-    ? `图片超过 8MB 已跳过：${tooBig.join('、')}（请压缩后再传）`
+    ? `图片超过 20MB 已跳过：${tooBig.join('、')}（请压缩后再传）`
     : ''
 }
+// Downscale an image blob/file to a small display-only thumbnail so the DOM
+// never holds a multi-MB original just to render an 80px preview. The original
+// bytes are untouched — uploads always use the source file/URL.
+function makeThumb(blob, maxSide = 320) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(blob)
+    const img = new Image()
+    img.onload = () => {
+      try {
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height))
+        const w = Math.max(1, Math.round(img.width * scale))
+        const h = Math.max(1, Math.round(img.height * scale))
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+        resolve(canvas.toDataURL('image/jpeg', 0.8))
+      } catch {
+        resolve('')
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); resolve('') }
+    img.src = url
+  })
+}
+
+// URL-backed refs (restored / 加入参考图) preview via the server-generated
+// thumbnail object (url + '.thumb.jpg', ≤512px). The serving route falls back
+// to the original when the thumb is missing, so this is always safe. The plain
+// url remains what gets re-submitted.
+function serverThumb(u) { return u + '.thumb.jpg' }
+
 // Drag-and-drop onto the reference area.
 const dragOver = ref(false)
 function onDrop(ev) {
@@ -237,13 +276,23 @@ function removeRef(i) { refImages.value.splice(i, 1) }
 function restoreRefs(urls) {
   if (!Array.isArray(urls) || !urls.length) return
   if (refImages.value.length) return   // don't clobber refs the user already added
-  refImages.value = urls.map((u) => ({ name: 'ref', url: u }))
+  refImages.value = urls.map((u) => ({ name: 'ref', url: u, thumb: serverThumb(u) }))
 }
 
-// refToBase64 yields the raw base64 the backend expects, from either a freshly
-// uploaded ref (dataUrl) or a restored one (url → fetch). Returns '' on failure.
+// refToBase64 yields the raw base64 the backend expects, from a freshly picked
+// ref (file — the untouched original), a data-URL ref (pasted/frame captures)
+// or a restored one (url → fetch). Returns '' on failure.
 async function refToBase64(r) {
   try {
+    if (r.file) {
+      const dataUrl = await new Promise((res, rej) => {
+        const fr = new FileReader()
+        fr.onload = () => res(fr.result)
+        fr.onerror = rej
+        fr.readAsDataURL(r.file)
+      })
+      return dataUrl.replace(/^data:[^,]*,/, '')
+    }
     if (r.dataUrl) return r.dataUrl.replace(/^data:[^,]*,/, '')
     if (r.url) {
       const blob = await (await fetch(r.url)).blob()
@@ -303,7 +352,13 @@ async function copyImage(url) {
 const count = ref(1)
 const batchCount = computed(() => (mode.value === 'image' ? Math.max(1, Math.min(4, count.value)) : 1))
 
+// Guard against accidental double-clicks: a second run() within 600ms is
+// ignored (each click otherwise fires an independent, charged generation).
+let lastRunAt = 0
 async function run() {
+  const now = Date.now()
+  if (now - lastRunAt < 600) return
+  lastRunAt = now
   if (!modelId.value) { error.value = '请选择模型'; return }
   if (!prompt.value.trim()) { error.value = '请输入提示词'; return }
   if (refsRequired.value && refImages.value.length < 1) {
@@ -396,7 +451,7 @@ let prevPending = 0
 async function loadHistory() {
   // Server-side filter: status IN (pending, success), newest 12 — exactly the
   // rows the grid shows, in one query (no client over-fetch).
-  const r = await api('/logs?limit=10&statuses=pending,success&source=user')
+  const r = await api('/logs?limit=10&statuses=pending,success&source=user&exclude_showcase=1&media=1')
   if (!r.ok) return
   history.value = (r.data?.data || [])
     .filter((e) => e.status === 'pending' || e.file)
@@ -423,6 +478,22 @@ async function loadHistory() {
   prevPending = serverPending.size
 }
 
+// Delete one of my works: remove the stored file (+thumb) server-side, then
+// drop the card locally so it disappears before the next history poll.
+async function deleteItem(item) {
+  if (!item || !item.url) return
+  if (!confirm('确定删除这个作品？删除后不可恢复')) return
+  const rel = (item.url || '').split('?')[0].split('/images/').pop()
+  const r = await api('/my-files?file=' + encodeURIComponent(rel), { method: 'DELETE' })
+  if (r.ok) {
+    tasks.value = tasks.value.filter((t) => t.id !== item.id)
+    history.value = history.value.filter((h) => h.id !== item.id)
+    flash('已删除')
+  } else {
+    flash(r.data?.detail || '删除失败')
+  }
+}
+
 // Click a generated IMAGE → use it as a reference. Single-ref model: replace the
 // existing ref. Multi-ref: append if there's room, else replace the last one.
 function useAsRef(item) {
@@ -430,7 +501,7 @@ function useAsRef(item) {
   if (item.kind === 'video') return
   const cap = maxRefs.value
   if (cap <= 0) { flash('当前模型不支持参考图'); return }
-  const ref = { name: 'ref', url: item.url }
+  const ref = { name: 'ref', url: item.url, thumb: serverThumb(item.url) }
   if (cap === 1) {
     refImages.value = [ref]
   } else if (refImages.value.length >= cap) {
@@ -628,7 +699,7 @@ onUnmounted(() => {
         <label class="block text-xs font-medium text-slate-500 mb-1.5">
           参考图
           <span class="text-slate-400 font-normal">
-            (最多 {{ maxRefs }} 张{{ refMode === 'frame' && mode === 'video' ? (maxRefs >= 2 ? ' · 首帧/末帧' : ' · 首帧') : '' }} · 单张 ≤8MB)
+            (最多 {{ maxRefs }} 张{{ refMode === 'frame' && mode === 'video' ? (maxRefs >= 2 ? ' · 首帧/末帧' : ' · 首帧') : '' }} · 单张 ≤20MB)
           </span>
           <span v-if="refsRequired" class="text-rose-500">*</span>
         </label>
@@ -637,7 +708,7 @@ onUnmounted(() => {
              @drop="onDrop" @dragover="onDragOver" @dragleave="onDragLeave">
           <div v-for="(img, i) in refImages" :key="i"
                class="relative w-20 h-20 rounded-lg overflow-hidden border border-slate-200 bg-slate-50 transition-all">
-            <img :src="img.dataUrl || img.url" class="w-full h-full object-cover" />
+            <img :src="img.thumb || img.dataUrl || img.url" class="w-full h-full object-cover" />
             <button type="button" @click="removeRef(i)"
                     class="absolute top-1 right-1 w-5 h-5 rounded-full bg-slate-900/70 text-white hover:bg-rose-500 grid place-items-center disabled:opacity-40 disabled:cursor-not-allowed">
               <Icon name="close" class="w-3 h-3" />
@@ -712,7 +783,7 @@ onUnmounted(() => {
             <!-- hover action: 上参考图. Image → use as reference; video → 末帧设为首帧
                  (only shown when the model supports 首尾帧). Clicking the media zooms. -->
             <div class="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button v-if="item.kind !== 'video'" @click.stop.prevent="copyImage(item.url + '.thumb.jpg')" title="复制缩略图"
+              <button v-if="item.kind !== 'video'" @click.stop.prevent="copyImage(item.url)" title="复制图片"
                       class="w-7 h-7 rounded-lg bg-black/50 ring-1 ring-white/10 hover:bg-black/70 text-white grid place-items-center">
                 <Icon name="copy" class="w-3.5 h-3.5" />
               </button>
@@ -725,6 +796,10 @@ onUnmounted(() => {
                       :title="item.kind === 'video' ? '把末帧设为首帧' : '作为参考图'"
                       class="w-7 h-7 rounded-lg bg-black/50 ring-1 ring-white/10 hover:bg-black/70 text-white grid place-items-center">
                 <Icon name="plus" class="w-3.5 h-3.5" />
+              </button>
+              <button @click.stop.prevent="deleteItem(item)" title="删除"
+                      class="w-7 h-7 rounded-lg bg-black/50 ring-1 ring-white/10 hover:bg-rose-600/80 text-white grid place-items-center">
+                <Icon name="trash" class="w-3.5 h-3.5" />
               </button>
             </div>
             <div class="absolute inset-x-0 bottom-0 p-2.5 pointer-events-none">
