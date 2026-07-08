@@ -1,10 +1,11 @@
 package adobe
 
 import (
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"os"
+	"math/big"
 	"strconv"
 	"strings"
 	"time"
@@ -81,9 +82,12 @@ func decodeJWTPayload(token string) map[string]any {
 }
 
 func buildARPSessionID() string {
+	// Every field is randomized per request: no embedded process pid or
+	// hardcoded constant suffix (those would make all requests from this
+	// install share a static feature — a cross-account correlation point).
 	raw := map[string]any{
 		"sid": uuid.NewString(),
-		"ftr": randomHex(16) + "_" + strconv.FormatInt(time.Now().UnixMilli(), 10) + "_" + strconv.Itoa(os.Getpid()) + "_dUAL43-mnts-ants-d4_31ck__tt",
+		"ftr": randomHex(16) + "_" + strconv.FormatInt(time.Now().UnixMilli(), 10) + "_" + strconv.Itoa(randomInt(1000, 999999)) + "_" + randomHex(8),
 	}
 	b, _ := json.Marshal(raw)
 	return base64.StdEncoding.EncodeToString(b)
@@ -94,11 +98,24 @@ func randomHex(n int) string {
 		return ""
 	}
 	buf := make([]byte, n)
-	now := time.Now().UnixNano()
-	for i := range buf {
-		buf[i] = byte(now >> ((i % 8) * 8))
+	if _, err := rand.Read(buf); err != nil {
+		now := time.Now().UnixNano()
+		for i := range buf {
+			buf[i] = byte(now >> ((i % 8) * 8))
+		}
 	}
 	return hex.EncodeToString(buf)
+}
+
+func randomInt(min, max int) int {
+	if max <= min {
+		return min
+	}
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(max-min+1)))
+	if err != nil {
+		return min
+	}
+	return min + int(n.Int64())
 }
 
 func intOrNil(v any) any {
