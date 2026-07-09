@@ -181,7 +181,12 @@ func (c *Client) GenerateImage(ctx context.Context, cookie, prompt string, width
 func (c *Client) pollImage(ctx context.Context, cookie, jobID string) (string, error) {
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
+	// Poll for the full generation budget (caller's genCtx), leaving headroom for
+	// the download, instead of a shorter hardcoded cap that killed slow jobs early.
 	deadline := time.Now().Add(4 * time.Minute)
+	if dl, ok := ctx.Deadline(); ok {
+		deadline = dl.Add(-60 * time.Second)
+	}
 
 	for {
 		body, status, err := c.apiGetP(ctx, cookie, "/api/job-status?id="+jobID, false)

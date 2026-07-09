@@ -97,7 +97,12 @@ func (c *Client) GenerateImage(ctx context.Context, cred string, styleID int, re
 func (c *Client) pollImage(ctx context.Context, token, userID, batchID string) (string, error) {
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
+	// Poll for the full generation budget (caller's genCtx), leaving headroom for
+	// the download, instead of a shorter hardcoded cap that killed slow jobs early.
 	deadline := time.Now().Add(4 * time.Minute)
+	if dl, ok := ctx.Deadline(); ok {
+		deadline = dl.Add(-60 * time.Second)
+	}
 
 	url := teamsBase + "/v1/org/" + userID + "/objects?batch=true&limit=50&service=image,chat-image"
 	for {

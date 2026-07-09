@@ -252,8 +252,13 @@ func (c *Client) pollImage(ctx context.Context, accessToken, genID string) (stri
 
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
-	// Cap the wait independent of the parent deadline so a stuck job can't hang.
+	// Poll for the full generation budget (caller's genCtx), leaving headroom for
+	// the download, instead of a shorter hardcoded cap that killed slow jobs early.
+	// ctx already bounds the wait, so a stuck job still can't hang indefinitely.
 	deadline := time.Now().Add(5 * time.Minute)
+	if dl, ok := ctx.Deadline(); ok {
+		deadline = dl.Add(-60 * time.Second)
+	}
 
 	for {
 		body, status, err := c.graphqlP(ctx, accessToken, payload, false)
