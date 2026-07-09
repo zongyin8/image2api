@@ -67,7 +67,7 @@ func (c *Client) uploadImage(ctx context.Context, cookie string, img []byte) (st
 		return "", err
 	}
 	_ = w.Close()
-	body, status, err := c.apiPost(ctx, cookie, "/api/upload?", w.FormDataContentType(), buf.Bytes())
+	body, status, err := c.apiPostP(ctx, cookie, "/api/upload?", w.FormDataContentType(), buf.Bytes(), false)
 	if err != nil {
 		return "", fmt.Errorf("%w: upload: %s", ErrTemporaryUpstream, err.Error())
 	}
@@ -184,7 +184,7 @@ func (c *Client) pollImage(ctx context.Context, cookie, jobID string) (string, e
 	deadline := time.Now().Add(4 * time.Minute)
 
 	for {
-		body, status, err := c.apiGet(ctx, cookie, "/api/job-status?id="+jobID)
+		body, status, err := c.apiGetP(ctx, cookie, "/api/job-status?id="+jobID, false)
 		if err == nil && status == 200 {
 			var js struct {
 				Status string `json:"status"`
@@ -215,7 +215,7 @@ func (c *Client) pollImage(ctx context.Context, cookie, jobID string) (string, e
 
 // assetForJob finds the generated asset produced by a job and returns its URL.
 func (c *Client) assetForJob(ctx context.Context, cookie, jobID string) (string, error) {
-	body, status, err := c.apiGet(ctx, cookie, "/api/assets?filter=generated&offset=0")
+	body, status, err := c.apiGetP(ctx, cookie, "/api/assets?filter=generated&offset=0", false)
 	if err != nil || status != 200 {
 		return "", fmt.Errorf("assets http %d", status)
 	}
@@ -237,7 +237,7 @@ func (c *Client) assetForJob(ctx context.Context, cookie, jobID string) (string,
 }
 
 func (c *Client) download(ctx context.Context, url string) ([]byte, error) {
-	client, err := c.newTLSClient()
+	client, err := c.newDirectTLSClient()
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +268,13 @@ func (c *Client) download(ctx context.Context, url string) ([]byte, error) {
 
 // apiPost issues a POST with a raw body + content-type, carrying the cookie.
 func (c *Client) apiPost(ctx context.Context, cookie, path, contentType string, body []byte) ([]byte, int, error) {
-	client, err := c.newTLSClient()
+	return c.apiPostP(ctx, cookie, path, contentType, body, true)
+}
+
+// apiPostP picks the egress: reference-image upload runs direct (local IP), the
+// generate submit uses the proxy.
+func (c *Client) apiPostP(ctx context.Context, cookie, path, contentType string, body []byte, useProxy bool) ([]byte, int, error) {
+	client, err := c.newTLSClientP(useProxy)
 	if err != nil {
 		return nil, 0, err
 	}

@@ -39,7 +39,13 @@ func (c *Client) GenerateImage(ctx context.Context, token, teamID, prompt, aspec
 		imageSize = "1K"
 	}
 
-	client, err := c.newTLSClient()
+	// Only the task-create (generate submit) egresses via the proxy; reference
+	// upload, polling and download run on the local IP.
+	submitClient, err := c.newTLSClient()
+	if err != nil {
+		return nil, nil, err
+	}
+	directClient, err := c.newDirectTLSClient()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -50,7 +56,7 @@ func (c *Client) GenerateImage(ctx context.Context, token, teamID, prompt, aspec
 			continue
 		}
 		filename := fmt.Sprintf("ref_%s_%d.png", time.Now().UTC().Format("20060102_150405"), i+1)
-		assetID, url, upErr := c.uploadReference(ctx, client, token, teamID, filename, raw)
+		assetID, url, upErr := c.uploadReference(ctx, directClient, token, teamID, filename, raw)
 		if upErr != nil {
 			return nil, nil, upErr
 		}
@@ -61,15 +67,15 @@ func (c *Client) GenerateImage(ctx context.Context, token, teamID, prompt, aspec
 		})
 	}
 
-	taskID, err := c.createImageTask(ctx, client, token, teamID, prompt, aspectRatio, imageSize, refImages)
+	taskID, err := c.createImageTask(ctx, submitClient, token, teamID, prompt, aspectRatio, imageSize, refImages)
 	if err != nil {
 		return nil, nil, err
 	}
-	artifactURL, err := c.pollTask(ctx, client, token, teamID, taskID)
+	artifactURL, err := c.pollTask(ctx, directClient, token, teamID, taskID)
 	if err != nil {
 		return nil, nil, err
 	}
-	data, err := c.download(ctx, client, artifactURL)
+	data, err := c.download(ctx, directClient, artifactURL)
 	if err != nil {
 		return nil, nil, err
 	}

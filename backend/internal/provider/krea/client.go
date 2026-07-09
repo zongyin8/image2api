@@ -394,7 +394,12 @@ func accountKey(cookie string) string {
 
 // apiGet issues a GET to a krea.ai API path carrying the account cookie.
 func (c *Client) apiGet(ctx context.Context, cookie, path string) ([]byte, int, error) {
-	client, err := c.newTLSClient()
+	return c.apiGetP(ctx, cookie, path, true)
+}
+
+// apiGetP picks the egress: polling / asset resolution run direct (local IP).
+func (c *Client) apiGetP(ctx context.Context, cookie, path string, useProxy bool) ([]byte, int, error) {
+	client, err := c.newTLSClientP(useProxy)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -426,12 +431,18 @@ func (c *Client) apiGet(ctx context.Context, cookie, path string) ([]byte, int, 
 	return b, resp.StatusCode, err
 }
 
-func (c *Client) newTLSClient() (tlsclient.HttpClient, error) {
+func (c *Client) newTLSClient() (tlsclient.HttpClient, error) { return c.newTLSClientP(true) }
+
+// newDirectTLSClient egresses on the local IP (never the proxy). Used for
+// reference-image upload, polling and result download.
+func (c *Client) newDirectTLSClient() (tlsclient.HttpClient, error) { return c.newTLSClientP(false) }
+
+func (c *Client) newTLSClientP(useProxy bool) (tlsclient.HttpClient, error) {
 	options := []tlsclient.HttpClientOption{
 		tlsclient.WithTimeoutSeconds(60),
 		tlsclient.WithClientProfile(profiles.Chrome_120),
 	}
-	if c.proxy != "" {
+	if useProxy && c.proxy != "" {
 		options = append(options, tlsclient.WithProxyUrl(c.proxy))
 	}
 	return tlsclient.NewHttpClient(tlsclient.NewNoopLogger(), options...)

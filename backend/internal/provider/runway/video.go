@@ -70,33 +70,39 @@ func (c *Client) GenerateVideo(ctx context.Context, token, teamID, prompt, aspec
 		return nil, nil, errors.New("runway: failed to decode first-frame image")
 	}
 
-	client, err := c.newTLSClient()
+	// Only the task-create (generate submit) egresses via the proxy; first-frame
+	// upload, polling and download run on the local IP.
+	submitClient, err := c.newTLSClient()
+	if err != nil {
+		return nil, nil, err
+	}
+	directClient, err := c.newDirectTLSClient()
 	if err != nil {
 		return nil, nil, err
 	}
 
 	filename := "frame_" + time.Now().UTC().Format("20060102_150405") + ".png"
-	previewUploadID, _, err := c.uploadFile(ctx, client, token, teamID, filename, "DATASET_PREVIEW", frame)
+	previewUploadID, _, err := c.uploadFile(ctx, directClient, token, teamID, filename, "DATASET_PREVIEW", frame)
 	if err != nil {
 		return nil, nil, err
 	}
-	datasetUploadID, _, err := c.uploadFile(ctx, client, token, teamID, filename, "DATASET", frame)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	assetID, imageURL, err := c.createDataset(ctx, client, token, teamID, filename, datasetUploadID, previewUploadID, cfg.Width, cfg.Height)
-	if err != nil {
-		return nil, nil, err
-	}
-	assetGroupID, _ := c.assetGroupID(ctx, client, token, teamID) // best-effort
-
-	taskID, err := c.createTask(ctx, client, token, teamID, prompt, imageURL, assetID, assetGroupID, aspectRatio, seconds)
+	datasetUploadID, _, err := c.uploadFile(ctx, directClient, token, teamID, filename, "DATASET", frame)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	artifactURL, err := c.pollTask(ctx, client, token, teamID, taskID)
+	assetID, imageURL, err := c.createDataset(ctx, directClient, token, teamID, filename, datasetUploadID, previewUploadID, cfg.Width, cfg.Height)
+	if err != nil {
+		return nil, nil, err
+	}
+	assetGroupID, _ := c.assetGroupID(ctx, directClient, token, teamID) // best-effort
+
+	taskID, err := c.createTask(ctx, submitClient, token, teamID, prompt, imageURL, assetID, assetGroupID, aspectRatio, seconds)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	artifactURL, err := c.pollTask(ctx, directClient, token, teamID, taskID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -109,7 +115,7 @@ func (c *Client) GenerateVideo(ctx context.Context, token, teamID, prompt, aspec
 	if !downloadResult {
 		return nil, meta, nil
 	}
-	data, err := c.download(ctx, client, artifactURL)
+	data, err := c.download(ctx, directClient, artifactURL)
 	if err != nil {
 		return nil, nil, err
 	}

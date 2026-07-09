@@ -57,7 +57,7 @@ func (c *Client) uploadInitImage(ctx context.Context, accessToken string, img []
 		"query":         mUploadImage,
 		"variables":     map[string]any{"uploadImageInput": map[string]any{"uploadType": "INIT", "extension": "png"}},
 	})
-	body, status, err := c.graphql(ctx, accessToken, payload)
+	body, status, err := c.graphqlP(ctx, accessToken, payload, false)
 	if err != nil {
 		return "", fmt.Errorf("%w: upload-init: %s", ErrTemporaryUpstream, err.Error())
 	}
@@ -106,7 +106,7 @@ func (c *Client) uploadInitImage(ctx context.Context, accessToken string, img []
 	}
 	_ = w.Close()
 
-	client, err := c.newTLSClient()
+	client, err := c.newDirectTLSClient()
 	if err != nil {
 		return "", err
 	}
@@ -256,7 +256,7 @@ func (c *Client) pollImage(ctx context.Context, accessToken, genID string) (stri
 	deadline := time.Now().Add(5 * time.Minute)
 
 	for {
-		body, status, err := c.graphql(ctx, accessToken, payload)
+		body, status, err := c.graphqlP(ctx, accessToken, payload, false)
 		if err != nil {
 			return "", fmt.Errorf("%w: poll: %s", ErrTemporaryUpstream, err.Error())
 		}
