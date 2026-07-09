@@ -59,6 +59,10 @@ func (c *Client) GenerateVideo(ctx context.Context, token, prompt, aspectRatio, 
 		return nil, nil, err
 	}
 
+	// Warm a fresh self-healed statsig challenge for this session so the anti-bot
+	// x-statsig-id is valid even on a cold cache (browser-free homepage seed+curves).
+	c.ensureChallenge(ctx, client, token)
+
 	// Image-to-video: upload each reference frame and collect its asset URL.
 	var imageRefs []string
 	for _, f := range frames {
