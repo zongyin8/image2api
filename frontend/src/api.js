@@ -48,12 +48,18 @@ export async function fetchHealth() {
 }
 
 /** Absolute URL for a generated artifact (works in dev via proxy too). */
+export function withToken(url) {
+  if (!url || !auth.token || !String(url).includes('/images/')) return url
+  const [path, query] = String(url).split('?')
+  return `${path}?${query ? query + '&' : ''}token=${encodeURIComponent(auth.token)}`
+}
+
 export function generatedUrl(name) {
-  return `${BASE}/images/${name}`
+  return withToken(`${BASE}/images/${name}`)
 }
 
 /** Small thumbnail URL for list views. The server falls back to the original
  * when no thumbnail object exists (old images), so this is always safe. */
 export function thumbUrl(name) {
-  return `${BASE}/images/${name}.thumb.jpg`
+  return withToken(`${BASE}/images/${name}.thumb.jpg`)
 }

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onUnmounted } from 'vue'
-import { api, jsonBody } from '../api'
+import { api, jsonBody, withToken } from '../api'
 import Icon from './Icon.vue'
 import SelectMenu from './SelectMenu.vue'
 
@@ -69,7 +69,7 @@ async function run() {
   const r = await api('/test', jsonBody('POST', payload))
   if (r.ok && r.data?.url) {
     busy.value = false
-    resultUrl.value = r.data.url
+    resultUrl.value = withToken(r.data.url)
     resultKind.value = r.data.kind || (isVideo.value ? 'video' : 'image')
     status.value = `完成 · ${r.data.provider} · ${(r.data.elapsed_ms / 1000).toFixed(1)}s`
   } else if (GATEWAY_TIMEOUT.has(r.status)) {
@@ -99,7 +99,7 @@ async function recover() {
   )
   if (mine && latest.status === 'success' && latest.url) {
     busy.value = false
-    resultUrl.value = latest.url
+    resultUrl.value = withToken(latest.url)
     resultKind.value = latest.kind || (isVideo.value ? 'video' : 'image')
     status.value = `完成 · ${(latest.elapsed_ms / 1000).toFixed(1)}s`
     return

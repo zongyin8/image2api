@@ -245,7 +245,7 @@ function makeThumb(blob, maxSide = 320) {
 // thumbnail object (url + '.thumb.jpg', ≤512px). The serving route falls back
 // to the original when the thumb is missing, so this is always safe. The plain
 // url remains what gets re-submitted.
-function serverThumb(u) { return u + '.thumb.jpg' }
+function serverThumb(u) { const [p, q] = String(u).split('?'); return p + '.thumb.jpg' + (q ? '?' + q : '') }
 
 // Drag-and-drop onto the reference area.
 const dragOver = ref(false)

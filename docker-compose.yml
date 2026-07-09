@@ -69,6 +69,9 @@ services:
     environment:
       APP_ENV: production
       APP_TITLE: image2api
+      GROK_STATSIG_HEADER_HEX: "002373368892280c5b009aa42da3021fee6937ccfacde83d1ccb9e07b7b6308659185ba35fa59f6883752440f84d743e31"
+      GROK_STATSIG_SUFFIX: "obfiowerehiring758b37100100"
+      GROK_STATSIG_TRAILER: "3"
       HTTP_ADDR: 0.0.0.0:6666
       POSTGRES_DSN: host=postgres user=postgres password=change-me-postgres dbname=vivid_ai port=5432 sslmode=disable TimeZone=Asia/Shanghai
       REDIS_ADDR: redis:6379

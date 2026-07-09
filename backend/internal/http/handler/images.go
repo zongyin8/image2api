@@ -53,9 +53,16 @@ func (h *ImageHandler) Serve(c *gin.Context) {
 		return
 	}
 	if !public {
+		sessionToken := readCookie(c, h.cfg.SessionCookieName)
+		if sessionToken == "" {
+			sessionToken = c.Query("token")
+		}
+		if sessionToken == "" {
+			sessionToken = service.ParseBearer(c.GetHeader("Authorization"))
+		}
 		authorized, err := h.imageAccess.IsAuthorized(
 			c.Request.Context(),
-			readCookie(c, h.cfg.SessionCookieName),
+			sessionToken,
 			user,
 		)
 		if err != nil {
