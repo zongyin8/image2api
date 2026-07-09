@@ -109,7 +109,7 @@ func (c *Client) FetchCreditsBalance(ctx context.Context, token string) (map[str
 	if token == "" {
 		return unknownBalance("empty token"), nil
 	}
-	client, err := c.newTLSClient()
+	client, err := c.newDirectTLSClient()
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +192,7 @@ func (c *Client) FetchSubscription(ctx context.Context, token string) (*Subscrip
 	if token == "" {
 		return nil, ErrAuth
 	}
-	client, err := c.newTLSClient()
+	client, err := c.newDirectTLSClient()
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +256,7 @@ func (c *Client) FetchSession(ctx context.Context, token string) (email, userID 
 	if token == "" {
 		return "", "", ErrAuth
 	}
-	client, err := c.newTLSClient()
+	client, err := c.newDirectTLSClient()
 	if err != nil {
 		return "", "", err
 	}
