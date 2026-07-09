@@ -2461,7 +2461,7 @@ func (s *V1Service) generateLeonardoImage(ctx context.Context, eventID string, m
 		return data, nil
 	}, func(e error) (bool, bool, bool, bool) {
 		return errors.Is(e, leonardo.ErrAuth), errors.Is(e, leonardo.ErrQuotaExhausted), errors.Is(e, leonardo.ErrTemporaryUpstream), false
-	}, nil, false)
+	}, nil, true)
 }
 
 // reconcileLeonardoCredits re-fetches an account's real token balance after a
@@ -2592,7 +2592,7 @@ func (s *V1Service) generateKreaImage(ctx context.Context, eventID string, model
 		return data, genErr
 	}, func(e error) (bool, bool, bool, bool) {
 		return errors.Is(e, krea.ErrAuth), errors.Is(e, krea.ErrQuotaExhausted), errors.Is(e, krea.ErrTemporaryUpstream), false
-	}, nil, false)
+	}, nil, true)
 }
 
 // imagineRefreshAndPersist ensures the account's Imagine credential has a valid
@@ -2665,7 +2665,7 @@ func (s *V1Service) generateImagineImage(ctx context.Context, eventID string, mo
 		return data, nil
 	}, func(e error) (bool, bool, bool, bool) {
 		return errors.Is(e, imagine.ErrAuth), errors.Is(e, imagine.ErrQuotaExhausted), errors.Is(e, imagine.ErrTemporaryUpstream), false
-	}, nil, false)
+	}, nil, true)
 }
 
 func (s *V1Service) refundIfNeeded(ctx context.Context, principal *APIPrincipal, eventID string, price float64) error {
