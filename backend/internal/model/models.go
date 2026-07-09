@@ -26,11 +26,35 @@ type User struct {
 	CheckinLast        string `gorm:"size:32"`
 	CheckinStreak      int    `gorm:"not null;default:0"`
 	GenerationCount    int64  `gorm:"not null;default:0"`
+	BannedWordHits     int64  `gorm:"not null;default:0"` // 提示词命中违禁词被拦截的累计次数
 	LastLoginAt        *time.Time
 	LastLoginIP        string `gorm:"size:128"`
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 	APIKeys            []APIKey `gorm:"foreignKey:UserID"`
+}
+
+// BannedWord is an admin-managed prompt blocklist entry. Generation requests
+// whose prompt contains Word (case-insensitive substring) are rejected before
+// reaching any provider; Hits counts how many requests each word blocked.
+type BannedWord struct {
+	ID        string `gorm:"primaryKey;size:32"`
+	Word      string `gorm:"size:255;uniqueIndex;not null"`
+	Hits      int64  `gorm:"not null;default:0"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// BannedWordHit records one blocked request: which word matched, who sent it,
+// and when. Feeds the admin 违禁词触发列表.
+type BannedWordHit struct {
+	ID        string    `gorm:"primaryKey;size:32"`
+	WordID    string    `gorm:"size:32;index"`
+	Word      string    `gorm:"size:255;index;not null"`
+	UserID    string    `gorm:"size:32;index"`
+	UserName  string    `gorm:"size:255"` // snapshot of name/email at hit time
+	Prompt    string    `gorm:"type:text"`
+	CreatedAt time.Time `gorm:"index"`
 }
 
 type APIKey struct {
@@ -75,9 +99,13 @@ type EventLog struct {
 	// stamped when the upstream call begins. Drives the accounts view's live
 	// in-flight count (pending events per account) and lets an abandoned-event
 	// purge attribute the failure back to the account it was using.
-	AccountID string  `gorm:"size:64;index"`
-	UserID    string  `gorm:"size:32;index"`
-	Cost      float64 `gorm:"not null;default:0"`
+	AccountID string `gorm:"size:64;index"`
+	// AccountEmail denormalizes the account's email at stamp time, so log rows
+	// keep showing which mailbox fulfilled the generation even after the account
+	// is deleted or re-imported under a different ID.
+	AccountEmail string  `gorm:"size:255"`
+	UserID       string  `gorm:"size:32;index"`
+	Cost         float64 `gorm:"not null;default:0"`
 	// Refunded marks that this event's up-front charge has already been credited
 	// back, so the normal failure path and the abandoned-purge sweep can never
 	// double-refund the same generation.
@@ -206,6 +234,8 @@ type SiteSetting struct {
 func AutoMigrateModels() []any {
 	return []any{
 		&User{},
+		&BannedWord{},
+		&BannedWordHit{},
 		&APIKey{},
 		&ShowcaseItem{},
 		&EventLog{},
