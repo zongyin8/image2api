@@ -120,6 +120,24 @@ const smtpBusy = ref(false); const smtpSaved = ref(false)
 const credits = reactive({ checkin_enabled: true, checkin_reward: 3, invite_enabled: true, invite_reward: 3, cdk_redeem_enabled: true })
 const credBusy = ref(false); const credSaved = ref(false)
 
+// ---- deai (去AI特征 附加价格) ----
+const deaiCfg = reactive({ price_1k: 1, price_2k: 2, price_4k: 3 })
+const deaiBusy = ref(false); const deaiSaved = ref(false)
+async function loadDeai() {
+  const r = await api('/settings/deai')
+  if (r.ok && r.data) Object.assign(deaiCfg, r.data)
+}
+async function saveDeai() {
+  deaiBusy.value = true; deaiSaved.value = false
+  const r = await api('/settings/deai', jsonBody('PUT', {
+    price_1k: Number(deaiCfg.price_1k) || 0,
+    price_2k: Number(deaiCfg.price_2k) || 0,
+    price_4k: Number(deaiCfg.price_4k) || 0,
+  }))
+  deaiBusy.value = false
+  if (r.ok) { deaiSaved.value = true; setTimeout(() => (deaiSaved.value = false), 2000) }
+}
+
 // ---- announcement (公告, markdown; re-pops for users who haven't seen edits) ----
 const ann = reactive({ content: '' })
 const annBusy = ref(false); const annSaved = ref(false)
@@ -269,7 +287,7 @@ async function saveCredits() {
   if (r.ok) { credSaved.value = true; setTimeout(() => (credSaved.value = false), 2000) }
 }
 
-onMounted(() => { loadSite(); loadReg(); loadSmtp(); loadCredits(); loadAnnouncement(); loadPay(); loadProxy(); loadLogs(); loadMedia() })
+onMounted(() => { loadSite(); loadReg(); loadSmtp(); loadCredits(); loadAnnouncement(); loadPay(); loadProxy(); loadLogs(); loadMedia(); loadDeai() })
 </script>
 
 <template>
@@ -460,6 +478,30 @@ onMounted(() => { loadSite(); loadReg(); loadSmtp(); loadCredits(); loadAnnounce
         </label>
       </div>
       <div class="mt-4"><button @click="saveCredits" :disabled="credBusy" class="btn-primary">{{ credBusy ? '保存中…' : '保存设置' }}</button></div>
+    </div>
+
+    <!-- deai (去AI特征) -->
+    <div class="card p-5">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold">去AI特征</h2>
+        <span v-if="deaiSaved" class="text-xs text-emerald-300">已保存 ✓</span>
+      </div>
+      <p class="text-xs text-slate-400 mb-4">画图台开启「去AI特征」后,按画质档位在模型价格之上额外扣除的积分。仅对图片生成生效。</p>
+      <div class="space-y-3">
+        <label class="row">
+          <span><span class="lbl">1K 附加价格</span><span class="hint">默认 1 积分。</span></span>
+          <input type="number" min="0" v-model.number="deaiCfg.price_1k" class="num" />
+        </label>
+        <label class="row">
+          <span><span class="lbl">2K 附加价格</span><span class="hint">默认 2 积分。</span></span>
+          <input type="number" min="0" v-model.number="deaiCfg.price_2k" class="num" />
+        </label>
+        <label class="row">
+          <span><span class="lbl">4K 附加价格</span><span class="hint">默认 3 积分。</span></span>
+          <input type="number" min="0" v-model.number="deaiCfg.price_4k" class="num" />
+        </label>
+      </div>
+      <div class="mt-4"><button @click="saveDeai" :disabled="deaiBusy" class="btn-primary">{{ deaiBusy ? '保存中…' : '保存设置' }}</button></div>
     </div>
 
     <!-- announcement (公告) -->

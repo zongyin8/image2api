@@ -65,6 +65,7 @@ func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.
 		publicAdmin.GET("/video-presets", handlers.UserGen.VideoPresets)
 		publicAdmin.GET("/catalog", handlers.UserGen.Catalog)
 		publicAdmin.GET("/models", handlers.UserGen.Models)
+		publicAdmin.GET("/deai-pricing", handlers.AppSettings.DeAIGet)
 		// 易支付 async notify — called server-to-server by the pay platform, no auth.
 		publicAdmin.GET("/pay/notify", handlers.Payment.Notify)
 		publicAdmin.POST("/pay/notify", handlers.Payment.Notify)
@@ -177,6 +178,8 @@ func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.
 			settings.PUT("/credits", handlers.AppSettings.CreditsPut)
 			settings.GET("/logs", handlers.AppSettings.LogsGet)
 			settings.PUT("/logs", handlers.AppSettings.LogsPut)
+			settings.GET("/deai", handlers.AppSettings.DeAIGet)
+			settings.PUT("/deai", handlers.AppSettings.DeAIPut)
 			settings.GET("/media", handlers.AppSettings.MediaGet)
 			settings.PUT("/media", handlers.AppSettings.MediaPut)
 			settings.GET("/announcement", handlers.Announcement.AdminGet)

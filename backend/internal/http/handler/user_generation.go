@@ -68,6 +68,7 @@ func (h *UserGenerationHandler) Generate(c *gin.Context) {
 		Resolution      string   `json:"resolution"`
 		Duration        string   `json:"duration"`
 		ReferenceImages []string `json:"reference_images"`
+		DeAI            bool     `json:"deai"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": "invalid request body"})
@@ -81,6 +82,7 @@ func (h *UserGenerationHandler) Generate(c *gin.Context) {
 		Resolution:      body.Resolution,
 		Duration:        body.Duration,
 		ReferenceImages: body.ReferenceImages,
+		DeAI:            body.DeAI,
 	})
 	if err != nil {
 		switch {

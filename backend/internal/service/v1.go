@@ -199,6 +199,10 @@ type V1ImageRequest struct {
 	Resolution      string
 	N               int
 	ReferenceImages []string
+	// DeAI applies 去AI特征 post-processing (crop / noise / tone jitter +
+	// re-encode) to the output and charges the per-tier surcharge on top of
+	// the model price. Playground-only; the /v1 OpenAI path never sets it.
+	DeAI bool
 	// BaseURL is the scheme+host of the inbound request (e.g. "https://host"),
 	// used to build absolute, directly-downloadable output URLs. Empty falls
 	// back to a relative "/images/..." path.
@@ -583,6 +587,13 @@ func (s *V1Service) prepareImageExecution(ctx context.Context, principal *APIPri
 		_ = s.refundIfNeeded(ctx, principal, eventID, price)
 		_ = s.events.UpdateStatus(ctx, eventID, "failed", "provider not implemented", 0)
 		return nil, fmt.Errorf("%w: %s", ErrProviderUnsupported, modelItem.Provider)
+	}
+	// 去AI特征: post-process before storing/returning. Best-effort — a decode
+	// failure keeps the original bytes rather than failing a paid generation.
+	if in.DeAI {
+		if processed, derr := applyDeAI(imageBytes); derr == nil {
+			imageBytes = processed
+		}
 	}
 	if !noStore {
 		// Upload to RustFS. On failure the generation fails and credits are
@@ -1104,7 +1115,11 @@ func (s *V1Service) prepareImage(ctx context.Context, principal *APIPrincipal, i
 			resolution = fb
 		}
 	}
-	price, err := s.chargeForModel(ctx, principal, modelItem, "image", resolution, "", charge)
+	var surcharge float64
+	if in.DeAI {
+		surcharge = s.deaiSurcharge(ctx, resolution)
+	}
+	price, err := s.chargeForModel(ctx, principal, modelItem, "image", resolution, "", surcharge, charge)
 	if err != nil {
 		return nil, "", "", 0, err
 	}
@@ -1172,14 +1187,14 @@ func (s *V1Service) prepareVideo(ctx context.Context, principal *APIPrincipal, i
 	if resolution == "" {
 		resolution = "720p"
 	}
-	price, err := s.chargeForModel(ctx, principal, modelItem, "video", resolution, duration, charge)
+	price, err := s.chargeForModel(ctx, principal, modelItem, "video", resolution, duration, 0, charge)
 	if err != nil {
 		return nil, "", "", "", 0, err
 	}
 	return modelItem, resolution, aspectRatio, duration, price, nil
 }
 
-func (s *V1Service) chargeForModel(ctx context.Context, principal *APIPrincipal, modelItem *model.ModelConfig, kind, resolution, duration string, charge bool) (float64, error) {
+func (s *V1Service) chargeForModel(ctx context.Context, principal *APIPrincipal, modelItem *model.ModelConfig, kind, resolution, duration string, surcharge float64, charge bool) (float64, error) {
 	// 代理用户走代理价(某档未设代理价则回退普通价)。principal.User 即将被扣费的
 	// 用户,无论画图台还是 key 调用都从这里取,所以一处即覆盖所有路径。
 	agent := principal != nil && principal.User != nil && principal.User.Role == "agent"
@@ -1187,6 +1202,7 @@ func (s *V1Service) chargeForModel(ctx context.Context, principal *APIPrincipal,
 	if !ok {
 		return 0, ErrUnsupportedParams
 	}
+	price += surcharge
 	if !charge || principal == nil || principal.User == nil {
 		return 0, nil
 	}
@@ -2863,6 +2879,30 @@ func guessRatio(w, h int) string {
 // firstPricedResolution returns the model's lowest priced image tier (1K/2K/4K
 // order), or "" if none is priced. Used to rescue a request whose resolution
 // the model doesn't support.
+// deaiSurcharge returns the 去AI特征 surcharge (积分) for an image resolution
+// tier, from site settings (defaults: 1K=1, 2K=2, 4K=3).
+func (s *V1Service) deaiSurcharge(ctx context.Context, resolution string) float64 {
+	key, def := "deai.price_1k", 1
+	switch strings.ToUpper(strings.TrimSpace(resolution)) {
+	case "2K":
+		key, def = "deai.price_2k", 2
+	case "4K":
+		key, def = "deai.price_4k", 3
+	}
+	if s.settings == nil {
+		return float64(def)
+	}
+	raw, err := s.settings.GetValue(ctx, key)
+	if err != nil {
+		return float64(def)
+	}
+	n := parseIntSetting(raw, def)
+	if n < 0 {
+		n = 0
+	}
+	return float64(n)
+}
+
 func firstPricedResolution(item *model.ModelConfig) string {
 	if item == nil {
 		return ""

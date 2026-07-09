@@ -33,6 +33,9 @@ type UserGenerateRequest struct {
 	Resolution      string
 	Duration        string
 	ReferenceImages []string
+	// DeAI applies 去AI特征 post-processing to the generated image (image only)
+	// and charges the per-tier surcharge on top of the model price.
+	DeAI bool
 	// AccountID pins an admin test to one specific provider account (账号生图测试).
 	AccountID string
 }
@@ -75,6 +78,7 @@ func (s *UserGenerationService) Generate(ctx context.Context, user *model.User, 
 			AspectRatio:     in.Ratio,
 			Resolution:      in.Resolution,
 			ReferenceImages: in.ReferenceImages,
+			DeAI:            in.DeAI,
 		})
 		if err != nil {
 			return nil, err
