@@ -52,6 +52,8 @@ func ResolveModelSpec(modelID string) modelSpec {
 		return modelSpec{UpstreamModelID: "gpt-image", UpstreamModelVersion: "2"}
 	case "flux-kontext-max":
 		return modelSpec{UpstreamModelID: "flux", UpstreamModelVersion: "fluxKontextMax"}
+	case "nano-banana-pro":
+		return modelSpec{UpstreamModelID: "nano-banana-2", UpstreamModelVersion: "nano-banana-2"}
 	default:
 		return modelSpec{UpstreamModelID: "gemini-flash", UpstreamModelVersion: "nano-banana-3"}
 	}

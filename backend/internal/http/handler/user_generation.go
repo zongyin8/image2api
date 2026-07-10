@@ -431,6 +431,16 @@ func (h *UserGenerationHandler) catalogEntries(c *gin.Context) ([]gin.H, error) 
 			"description":          "Adobe Firefly GPT Image",
 		},
 		{
+			"id":                   "nano-banana-pro",
+			"provider":             "adobe",
+			"type":                 "image",
+			"ratios":               []string{"1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "4:5", "5:4", "21:9"},
+			"resolutions":          []string{"1K", "2K", "4K"},
+			"image_to_image":       true,
+			"max_reference_images": 6,
+			"description":          "Adobe Nano Banana Pro (Gemini 3 Pro)",
+		},
+		{
 			"id":             "firefly-image-5",
 			"provider":       "adobe",
 			"type":           "image",
@@ -590,6 +600,15 @@ func (h *UserGenerationHandler) publicModels() ([]gin.H, error) {
 			"ratios":      []string{"1:1", "5:4", "9:16", "21:9", "16:9", "4:3", "3:2", "4:5", "3:4", "2:3"},
 			"resolutions": []string{"1K", "2K", "4K"},
 			"description": "Adobe Firefly GPT Image",
+			"stub":        false,
+		},
+		{
+			"id":          "nano-banana-pro",
+			"provider":    "adobe",
+			"kind":        "image",
+			"ratios":      []string{"1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "4:5", "5:4", "21:9"},
+			"resolutions": []string{"1K", "2K", "4K"},
+			"description": "Adobe Nano Banana Pro (Gemini 3 Pro)",
 			"stub":        false,
 		},
 		{
