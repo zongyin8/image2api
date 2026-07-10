@@ -68,6 +68,7 @@ func (h *UserGenerationHandler) Generate(c *gin.Context) {
 		Resolution      string   `json:"resolution"`
 		Duration        string   `json:"duration"`
 		ReferenceImages []string `json:"reference_images"`
+		DeAI            bool     `json:"deai"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": "invalid request body"})
@@ -81,6 +82,7 @@ func (h *UserGenerationHandler) Generate(c *gin.Context) {
 		Resolution:      body.Resolution,
 		Duration:        body.Duration,
 		ReferenceImages: body.ReferenceImages,
+		DeAI:            body.DeAI,
 	})
 	if err != nil {
 		switch {
@@ -308,6 +310,7 @@ func (h *UserGenerationHandler) Logs(c *gin.Context) {
 			"resolution": item.Resolution,
 			"duration":   item.Duration,
 			"refs":       item.Refs,
+			"deai":       item.DeAI,
 			"source":     emptyStringNil(item.Source),
 			"user_id":    emptyStringNil(item.UserID),
 			"user_name":  userName,
@@ -431,16 +434,6 @@ func (h *UserGenerationHandler) catalogEntries(c *gin.Context) ([]gin.H, error) 
 			"description":          "Adobe Firefly GPT Image",
 		},
 		{
-			"id":                   "nano-banana-pro",
-			"provider":             "adobe",
-			"type":                 "image",
-			"ratios":               []string{"1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "4:5", "5:4", "21:9"},
-			"resolutions":          []string{"1K", "2K", "4K"},
-			"image_to_image":       true,
-			"max_reference_images": 6,
-			"description":          "Adobe Nano Banana Pro (Gemini 3 Pro)",
-		},
-		{
 			"id":             "firefly-image-5",
 			"provider":       "adobe",
 			"type":           "image",
@@ -469,6 +462,17 @@ func (h *UserGenerationHandler) catalogEntries(c *gin.Context) ([]gin.H, error) 
 			"max_reference_images": 6,
 			"reference_mode":       "asset",
 			"description":          "Runway Nano Banana 2 (图/参考图)",
+		},
+		{
+			"id":                   "nano-banana-pro",
+			"provider":             "runway",
+			"type":                 "image",
+			"ratios":               []string{"1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9"},
+			"resolutions":          []string{"1K", "2K", "4K"},
+			"image_to_image":       true,
+			"max_reference_images": 6,
+			"reference_mode":       "asset",
+			"description":          "Runway Nano Banana Pro (图/参考图)",
 		},
 		{
 			"id":                   "gemini-veo31",
@@ -603,15 +607,6 @@ func (h *UserGenerationHandler) publicModels() ([]gin.H, error) {
 			"stub":        false,
 		},
 		{
-			"id":          "nano-banana-pro",
-			"provider":    "adobe",
-			"kind":        "image",
-			"ratios":      []string{"1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "4:5", "5:4", "21:9"},
-			"resolutions": []string{"1K", "2K", "4K"},
-			"description": "Adobe Nano Banana Pro (Gemini 3 Pro)",
-			"stub":        false,
-		},
-		{
 			"id":          "firefly-image-5",
 			"provider":    "adobe",
 			"kind":        "image",
@@ -636,6 +631,15 @@ func (h *UserGenerationHandler) publicModels() ([]gin.H, error) {
 			"ratios":      []string{"1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9"},
 			"resolutions": []string{"1K", "2K", "4K"},
 			"description": "Runway Nano Banana 2",
+			"stub":        false,
+		},
+		{
+			"id":          "nano-banana-pro",
+			"provider":    "runway",
+			"kind":        "image",
+			"ratios":      []string{"1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9"},
+			"resolutions": []string{"1K", "2K", "4K"},
+			"description": "Runway Nano Banana Pro",
 			"stub":        false,
 		},
 		{

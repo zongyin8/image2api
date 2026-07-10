@@ -110,7 +110,9 @@ func (c *Client) GenerateImage(ctx context.Context, accessToken, prompt, model, 
 	refIDs := uploadedRefIDSet(uploadedRefs)
 	fileIDs = dropIDs(fileIDs, refIDs)
 	sedimentIDs = dropIDs(sedimentIDs, refIDs)
-	session, err = c.newSession(accessToken)
+	// Poll / resolve / download run on the local IP (fresh direct session);
+	// only the submit phase above egressed via the proxy.
+	session, err = c.newDirectSession(accessToken)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -154,7 +156,7 @@ func ExtractAccountInfo(token string) map[string]any {
 }
 
 func (c *Client) FetchImageQuota(ctx context.Context, accessToken string) (map[string]any, error) {
-	session, err := c.newSession(accessToken)
+	session, err := c.newDirectSession(accessToken)
 	if err != nil {
 		return nil, err
 	}
@@ -219,6 +221,17 @@ type chatRequirements struct {
 }
 
 func (c *Client) newSession(accessToken string) (tlsclient.HttpClient, error) {
+	return c.newSessionP(accessToken, true)
+}
+
+// newDirectSession egresses on the local IP (never the proxy). Used for the
+// poll / resolve / download phase; only the anti-bot-guarded submit phase
+// (bootstrap, chat-requirements, upload, conversation create) uses the proxy.
+func (c *Client) newDirectSession(accessToken string) (tlsclient.HttpClient, error) {
+	return c.newSessionP(accessToken, false)
+}
+
+func (c *Client) newSessionP(accessToken string, useProxy bool) (tlsclient.HttpClient, error) {
 	options := []tlsclient.HttpClientOption{
 		tlsclient.WithTimeoutSeconds(600),
 		// Match the Python reference (curl_cffi impersonate="chrome110"): the
@@ -226,7 +239,7 @@ func (c *Client) newSession(accessToken string) (tlsclient.HttpClient, error) {
 		tlsclient.WithClientProfile(profiles.Chrome_110),
 		tlsclient.WithRandomTLSExtensionOrder(),
 	}
-	if c.proxy != "" {
+	if useProxy && c.proxy != "" {
 		options = append(options, tlsclient.WithProxyUrl(c.proxy))
 	}
 	client, err := tlsclient.NewHttpClient(tlsclient.NewNoopLogger(), options...)
