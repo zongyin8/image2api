@@ -109,7 +109,7 @@ func (c *Client) FetchCreditsBalance(ctx context.Context, token string) (map[str
 	if token == "" {
 		return unknownBalance("empty token"), nil
 	}
-	client, err := c.newTLSClient()
+	client, err := c.newDirectTLSClient()
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +192,7 @@ func (c *Client) FetchSubscription(ctx context.Context, token string) (*Subscrip
 	if token == "" {
 		return nil, ErrAuth
 	}
-	client, err := c.newTLSClient()
+	client, err := c.newDirectTLSClient()
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +256,7 @@ func (c *Client) FetchSession(ctx context.Context, token string) (email, userID 
 	if token == "" {
 		return "", "", ErrAuth
 	}
-	client, err := c.newTLSClient()
+	client, err := c.newDirectTLSClient()
 	if err != nil {
 		return "", "", err
 	}
@@ -521,7 +521,7 @@ func parseStatsigCurves(html string) ([][]statsigCurve, error) {
 // serializes getComputedStyle(color)+getComputedStyle(transform) exactly as the
 // signer does (each number -> Number(v.toFixed(2)).toString(16), '.'/'-' stripped).
 func computeStatsigTail(seed []byte, curves [][]statsigCurve) (string, error) {
-	if len(seed) < 40 {
+	if len(seed) < 46 {
 		return "", errors.New("statsig: short seed")
 	}
 	if len(curves) == 0 {
@@ -531,13 +531,13 @@ func computeStatsigTail(seed []byte, curves [][]statsigCurve) (string, error) {
 	if len(curves[group]) == 0 {
 		return "", errors.New("statsig: empty curve group")
 	}
-	idx := int(seed[17]) % len(curves[group])
+	idx := int(seed[45]) % len(curves[group])
 	cv := curves[group][idx]
 	if len(cv.Color) < 6 || len(cv.Bezier) < 4 {
 		return "", errors.New("statsig: malformed curve")
 	}
 
-	n := (int(seed[19]) % 16) * (int(seed[15]) % 16) * (int(seed[39]) % 16)
+	n := (int(seed[1]) % 16) * (int(seed[6]) % 16) * (int(seed[13]) % 16)
 	currentTime := jsRound(float64(n)/10) * 10
 	progress := float64(currentTime) / statsigAnimDuration
 
@@ -558,7 +558,7 @@ func computeStatsigTail(seed []byte, curves [][]statsigCurve) (string, error) {
 		}
 		nums = append(nums, float64(v))
 	}
-	theta := jsRound(float64(cv.Deg)*300/255 + 60)
+	theta := int(math.Floor(float64(cv.Deg)*300/255 + 60))
 	rad := float64(theta) * eased * math.Pi / 180
 	cos, sin := math.Cos(rad), math.Sin(rad)
 	nums = append(nums, cos, sin, -sin, cos, 0, 0)
@@ -689,7 +689,14 @@ func (c *Client) applyHeaders(req *http.Request, token string, extra map[string]
 	req.Header = h
 }
 
-func (c *Client) newTLSClient() (tlsclient.HttpClient, error) {
+func (c *Client) newTLSClient() (tlsclient.HttpClient, error) { return c.newTLSClientP(true) }
+
+// newDirectTLSClient egresses on the local IP (never the proxy). Used for
+// reference-frame upload and result (video) download; only the generate submit
+// (/rest/app-chat/conversations/new) uses the proxy.
+func (c *Client) newDirectTLSClient() (tlsclient.HttpClient, error) { return c.newTLSClientP(false) }
+
+func (c *Client) newTLSClientP(useProxy bool) (tlsclient.HttpClient, error) {
 	options := []tlsclient.HttpClientOption{
 		// Video generation streams inline until progress=100; a 15s clip can take
 		// several minutes, so allow up to 10m (caller's genCtx caps at 12m).
@@ -697,7 +704,7 @@ func (c *Client) newTLSClient() (tlsclient.HttpClient, error) {
 		tlsclient.WithClientProfile(profiles.Chrome_133),
 		tlsclient.WithRandomTLSExtensionOrder(),
 	}
-	if c.proxy != "" {
+	if useProxy && c.proxy != "" {
 		options = append(options, tlsclient.WithProxyUrl(c.proxy))
 	}
 	return tlsclient.NewHttpClient(tlsclient.NewNoopLogger(), options...)
