@@ -69,7 +69,11 @@ func (c *Client) SetProxy(proxy string) {
 }
 
 func (c *Client) GenerateImage(ctx context.Context, accessToken, prompt, model, aspectRatio, resolution string, refs [][]byte) ([]byte, map[string]any, error) {
-	session, err := c.newSession(accessToken)
+	// Everything except the generation submit egresses on the local IP. Only
+	// startImageGeneration (the /backend-api/f/conversation POST) goes through
+	// the proxy; the bootstrap / chat-requirements / reference upload / prepare
+	// handshake and the poll / resolve / download run direct.
+	session, err := c.newDirectSession(accessToken)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -100,7 +104,12 @@ func (c *Client) GenerateImage(ctx context.Context, accessToken, prompt, model, 
 	if err != nil {
 		return nil, nil, err
 	}
-	conversationID, fileIDs, sedimentIDs, err := c.startImageGeneration(ctx, session, accessToken, effectivePrompt, reqs, conduitToken, model, uploadedRefs)
+	// The generation submit is the only request that egresses via the proxy.
+	submitSession, err := c.newSession(accessToken)
+	if err != nil {
+		return nil, nil, err
+	}
+	conversationID, fileIDs, sedimentIDs, err := c.startImageGeneration(ctx, submitSession, accessToken, effectivePrompt, reqs, conduitToken, model, uploadedRefs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -110,12 +119,6 @@ func (c *Client) GenerateImage(ctx context.Context, accessToken, prompt, model, 
 	refIDs := uploadedRefIDSet(uploadedRefs)
 	fileIDs = dropIDs(fileIDs, refIDs)
 	sedimentIDs = dropIDs(sedimentIDs, refIDs)
-	// Poll / resolve / download run on the local IP (fresh direct session);
-	// only the submit phase above egressed via the proxy.
-	session, err = c.newDirectSession(accessToken)
-	if err != nil {
-		return nil, nil, err
-	}
 	fileIDs, sedimentIDs, err = c.pollForImage(ctx, session, accessToken, conversationID, fileIDs, sedimentIDs, refIDs, pollBudget(ctx))
 	if err != nil {
 		return nil, nil, err
@@ -224,9 +227,9 @@ func (c *Client) newSession(accessToken string) (tlsclient.HttpClient, error) {
 	return c.newSessionP(accessToken, true)
 }
 
-// newDirectSession egresses on the local IP (never the proxy). Used for the
-// poll / resolve / download phase; only the anti-bot-guarded submit phase
-// (bootstrap, chat-requirements, upload, conversation create) uses the proxy.
+// newDirectSession egresses on the local IP (never the proxy). Used for
+// everything except the generation submit (the /backend-api/f/conversation
+// POST), which is the only request that uses the proxy.
 func (c *Client) newDirectSession(accessToken string) (tlsclient.HttpClient, error) {
 	return c.newSessionP(accessToken, false)
 }

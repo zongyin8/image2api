@@ -68,9 +68,10 @@ func (c *Client) GenerateVideo(ctx context.Context, token, prompt, aspectRatio, 
 	// Self-heal the x-statsig-id anti-bot challenge for THIS session before the
 	// gated submit. Without it the header falls back to the static defaults,
 	// which go stale on a new grok web build and make conversations/new answer
-	// 403 (anti-bot). Fetch via the proxy client so the derived seed matches the
-	// submit's egress IP. Failure is non-fatal (statsigID then uses defaults).
-	c.ensureChallenge(ctx, submitClient, token)
+	// 403 (anti-bot). Fetch on the local IP (the proxy is rotating, so pinning
+	// the seed to a proxy egress IP is pointless). Failure is non-fatal
+	// (statsigID then uses defaults).
+	c.ensureChallenge(ctx, directClient, token)
 
 	// Image-to-video: upload each reference frame and collect its asset URL.
 	var imageRefs []string
