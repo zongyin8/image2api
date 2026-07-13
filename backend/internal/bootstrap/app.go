@@ -139,13 +139,15 @@ func NewApp(ctx context.Context) (*App, error) {
 	v1Svc.SetBannedWords(bannedWordRepo)
 	userGenSvc := service.NewUserGenerationService(v1Svc, eventRepo, userRepo, modelRepo)
 
+	captchaSvc := service.NewCaptchaService(rdb)
+
 	engine := router.New(cfg, authSvc, router.Handlers{
 		Health:        handler.NewHealthHandler(),
 		Images:        handler.NewImageHandler(cfg, imageAccessSvc, rustfsClient),
 		V1:            handler.NewV1Handler(v1Svc),
 		Site:          handler.NewSiteHandler(siteSvc),
 		Showcase:      handler.NewShowcaseHandler(showcaseSvc),
-		Auth:          handler.NewAuthHandler(cfg, authSvc, rateLimitSvc),
+		Auth:          handler.NewAuthHandler(cfg, authSvc, rateLimitSvc, captchaSvc),
 		SiteSettings:  handler.NewSiteSettingsHandler(siteSvc),
 		AppSettings:   handler.NewAppSettingsHandler(appSettingsSvc),
 		AdminRead:     handler.NewAdminReadHandler(adminReadSvc),

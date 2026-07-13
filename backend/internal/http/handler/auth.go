@@ -17,15 +17,59 @@ type AuthHandler struct {
 	cfg     *config.Config
 	auth    *service.AuthService
 	limiter *service.RateLimitService
+	captcha *service.CaptchaService
 }
 
-func NewAuthHandler(cfg *config.Config, auth *service.AuthService, limiter *service.RateLimitService) *AuthHandler {
+func NewAuthHandler(cfg *config.Config, auth *service.AuthService, limiter *service.RateLimitService, captcha *service.CaptchaService) *AuthHandler {
 	return &AuthHandler{
 		cfg:     cfg,
 		auth:    auth,
 		limiter: limiter,
+		captcha: captcha,
 	}
 }
+
+// Captcha 生成图形验证码,返回 {captcha_id, image(base64 DataURL)}。
+func (h *AuthHandler) Captcha(c *gin.Context) {
+	id, img, err := h.captcha.Generate(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": "验证码生成失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"captcha_id": id, "image": img})
+}
+
+// RegisterCaptcha 图形验证码注册:{username, password, captcha_id, captcha_answer}。
+// 承接 ChatGPT2API 前端(用户名+图形验证码,无邮箱)。
+func (h *AuthHandler) RegisterCaptcha(c *gin.Context) {
+	var body struct {
+		Username      string `json:"username"`
+		Password      string `json:"password"`
+		CaptchaID     string `json:"captcha_id"`
+		CaptchaAnswer string `json:"captcha_answer"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "invalid request body"})
+		return
+	}
+	if err := h.enforceRateLimit(c, "auth:register:ip:"+clientIP(c), 10, time.Hour); err != nil {
+		return
+	}
+	if !h.captcha.Verify(c.Request.Context(), body.CaptchaID, body.CaptchaAnswer) {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "验证码错误或已过期"})
+		return
+	}
+	user, token, session, err := h.auth.RegisterUsername(
+		c.Request.Context(), body.Username, body.Password, migratedEmailDomain, clientIP(c))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+		return
+	}
+	h.writeSession(c, token, session, user)
+}
+
+// migratedEmailDomain 合成邮箱占位域名(须与迁移脚本一致)。
+const migratedEmailDomain = "go2api.local"
 
 func (h *AuthHandler) Config(c *gin.Context) {
 	data, err := h.auth.AuthConfig(c.Request.Context())

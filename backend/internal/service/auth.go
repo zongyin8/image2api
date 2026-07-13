@@ -326,6 +326,88 @@ func (s *AuthService) Register(ctx context.Context, email, username, password, i
 	return created, token, payload, nil
 }
 
+// RegisterUsername 用户名+密码注册(图形验证码校验在 handler 侧已通过),
+// 邮箱由 username 合成。用于承接 ChatGPT2API 前端的注册流(无邮箱、图形验证码)。
+// 复用 Register 的核心建用户+发 session 逻辑,但跳过邮箱/邮箱码/域名白名单。
+func (s *AuthService) RegisterUsername(ctx context.Context, username, password, emailDomain, ip string) (*model.User, string, *SessionPayload, error) {
+	username = strings.TrimSpace(username)
+	if !loginUsernamePattern.MatchString(username) {
+		return nil, "", nil, errors.New("用户名格式不正确(3-24 位字母数字下划线)")
+	}
+	if err := ValidatePassword(password); err != nil {
+		return nil, "", nil, err
+	}
+	settings, err := s.loadAuthSettings(ctx)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	hasAdmin, err := s.users.HasAdmin(ctx)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	if hasAdmin && !settings.Open {
+		return nil, "", nil, errors.New("当前未开放注册")
+	}
+	exists, err := s.users.ExistsName(ctx, username, "")
+	if err != nil {
+		return nil, "", nil, err
+	}
+	if exists {
+		return nil, "", nil, errors.New("用户名已存在")
+	}
+	if strings.TrimSpace(emailDomain) == "" {
+		emailDomain = "go2api.local"
+	}
+	email := strings.ToLower(username) + "@" + emailDomain
+	exists, err = s.users.ExistsEmail(ctx, email, "")
+	if err != nil {
+		return nil, "", nil, err
+	}
+	if exists {
+		return nil, "", nil, errors.New("用户名已存在")
+	}
+	passwordHash, err := HashPassword(password)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	role := "user"
+	if !hasAdmin {
+		role = "admin"
+	}
+	now := time.Now()
+	user := &model.User{
+		ID:           "u-" + randomUpper(10),
+		Email:        email,
+		Name:         username,
+		PasswordHash: passwordHash,
+		Role:         role,
+		Status:       "active",
+		InviteCode:   randomInviteCode(),
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if s.cgroups != nil {
+		if def, derr := s.cgroups.GetDefault(ctx); derr == nil && def != nil {
+			user.ConcurrencyGroupID = def.ID
+		}
+	}
+	if err := s.users.Create(ctx, user); err != nil {
+		return nil, "", nil, err
+	}
+	if err := s.users.TouchLogin(ctx, user.ID, ip); err != nil {
+		return nil, "", nil, err
+	}
+	token, payload, err := s.sessions.Create(ctx, user.ID)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	created, err := s.users.GetByID(ctx, user.ID)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	return created, token, payload, nil
+}
+
 func (s *AuthService) ResetPassword(ctx context.Context, email, password, emailCode, ip string) error {
 	settings, err := s.loadAuthSettings(ctx)
 	if err != nil {

@@ -17,8 +17,11 @@ const (
 )
 
 var (
-	usernamePattern  = regexp.MustCompile(`^[A-Za-z0-9]{6,24}$`)
-	emailCodePattern = regexp.MustCompile(`^\d{6}$`)
+	usernamePattern = regexp.MustCompile(`^[A-Za-z0-9]{6,24}$`)
+	// 登录标识专用:兼容从 ChatGPT2API 迁入的存量用户名(3-24 位、允许下划线)。
+	// 注册仍走 usernamePattern 的严格规则,这条只用于登录时的账号校验。
+	loginUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9_]{3,24}$`)
+	emailCodePattern     = regexp.MustCompile(`^\d{6}$`)
 )
 
 func ValidateEmail(email string) (string, error) {
@@ -124,7 +127,11 @@ func ValidateLoginIdentifier(identifier string) (string, error) {
 	if strings.Contains(normalized, "@") {
 		return ValidateEmail(normalized)
 	}
-	return ValidateUsername(normalized)
+	// 登录用宽松规则(兼容存量用户名),而非注册的 ValidateUsername 严格规则。
+	if !loginUsernamePattern.MatchString(normalized) {
+		return "", errors.New("账号格式不正确")
+	}
+	return normalized, nil
 }
 
 func ValidateAllowedEmailDomains(domains []string) []string {

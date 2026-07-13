@@ -75,6 +75,8 @@ func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.
 	{
 		authGroup.GET("/config", handlers.Auth.Config)
 		authGroup.POST("/send-code", handlers.Auth.SendCode)
+		authGroup.GET("/captcha", handlers.Auth.Captcha)
+		authGroup.POST("/register-captcha", handlers.Auth.RegisterCaptcha)
 		authGroup.POST("/register", handlers.Auth.Register)
 		authGroup.POST("/login", handlers.Auth.Login)
 		authGroup.POST("/logout", handlers.Auth.Logout)
