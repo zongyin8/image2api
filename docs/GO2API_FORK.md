@@ -60,7 +60,7 @@ Nginx 参考配置是 `ops/nginx-tu.go2api.cc.conf`。其中 Provisioner key 是
 - 旧图片、视频和缩略图目录已删除；Nginx `/images/` 仅代理 image2api/RustFS。
 - Provisioner 使用本仓库 Compose 运行，旧账号同步器和 watcher 已移除。
 - 重复的 `image2api-g2a` 孤立容器已删除，卷暂时保留用于回滚。
-- `/opt/gpt` 中剩余文件仅是离线旧配置/数据库，不被活动进程、Nginx 或 systemd 引用。
+- `/opt/gpt` 已完整删除；删除前的关键控制配置和文件清单保存在 cutover 备份目录。
 
 生产源码检出位于 `/opt/image2api-src`，运行配置和静态部署位于 `/opt/image2api-g2a`。
 
