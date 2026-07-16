@@ -270,6 +270,24 @@
   function maxReferenceFiles() {
     return state.mode === "video" ? Math.max(0, Number(currentVideoModel()?.max_reference_images || 0)) : MAX_REF;
   }
+  let creditAlertPromise = null;
+  function isInsufficientCredits(value) {
+    const text = String(value || "").toLowerCase();
+    return text.includes("insufficient credits") || text.includes("积分不足");
+  }
+  function showInsufficientCredits(required, balance) {
+    if (creditAlertPromise) return creditAlertPromise;
+    const need = Math.max(0, Number(required) || 0);
+    const current = Math.max(0, Number(balance) || 0);
+    creditAlertPromise = showCenterConfirm({
+      title: "积分不足",
+      message: `本次需要 ${need} 积分，当前余额 ${current} 积分。请先充值或兑换后再生成。`,
+      confirmText: "去充值",
+      cancelText: "关闭",
+    }).then((go) => { if (go) showPage("recharge"); return go; })
+      .finally(() => { creditAlertPromise = null; });
+    return creditAlertPromise;
+  }
   let refObjectUrls = [];
   function updatePickBtn() {
     if (!els.pickImageBtn) return;
@@ -1396,14 +1414,15 @@
     const prompt = els.prompt.value.trim();
     if (!prompt) { setMessage("请先输入提示词", "error"); return; }
     let identity = state.identity;
-    if (!identity) { try { identity = await refreshMe(); } catch {} }
+    try { identity = await refreshMe(); } catch {}
     const videoModel = currentVideoModel();
     if (!videoModel) { setMessage("当前没有可用的视频模型", "error"); return; }
     const needCost = currentGenerationCost();
     const remaining = Number(identity?.credits || 0);
     if (remaining < needCost) {
-      setMessage(`积分不足：本次需要 ${needCost} 积分，当前余额 ${Math.max(0, remaining)}，请先充值`, "error");
-      showPage("recharge"); return;
+      setMessage("", "");
+      await showInsufficientCredits(needCost, remaining);
+      return;
     }
     const duration = String(els.vidSeconds?.value || "");
     const resolution = els.vidResolution?.value || "720p";
@@ -1431,6 +1450,13 @@
       saveTasks(); render(); void refreshMe(); void loadCreditHistory();
     } catch (e) {
       const message = e.message || String(e);
+      if (e.status === 402 || isInsufficientCredits(message)) {
+        state.tasks = state.tasks.filter(item => item !== task);
+        await refreshMe().catch(() => {});
+        await showInsufficientCredits(needCost, state.identity?.credits);
+        saveTasks(); render();
+        return;
+      }
       const recoverable = !e.status || e.status >= 500 || /timeout|timed out|failed to fetch|network|524/i.test(message);
       if (recoverable) {
         task.video.message = "连接超时，后台仍在生成，正在自动恢复...";
@@ -1496,12 +1522,13 @@
     if (!prompt) { setMessage("请先输入提示词", "error"); return; }
     const count = Math.max(1, Math.min(4, Number(els.count.value) || 1));
     let identity = state.identity;
-    if (!identity) { try { identity = await refreshMe(); } catch {} }
-    // 网关 逐档单价前端不预知，这里只做「余额<=0」软拦截；真正的扣费/不足由后端 402 判定。
+    try { identity = await refreshMe(); } catch {}
     const credits = Number(identity?.credits ?? 0);
-    if (identity && credits <= 0) {
-      setMessage("积分余额不足，请先充值或兑换后再生成", "error");
-      showPage("recharge");
+    const unitCost = currentGenerationCost();
+    const needCost = unitCost * count;
+    if (identity && credits < needCost) {
+      setMessage("", "");
+      await showInsufficientCredits(needCost, credits);
       return;
     }
     // 图生图参考图 & 模式在这里快照——入队后用户可能改参数再点生成，队列里的任务不能受影响。
@@ -1513,14 +1540,14 @@
       if (!refs.length) { setMessage("参考图读取失败，请重新上传", "error"); return; }
     }
     const model = els.model.value, size = els.size.value, quality = els.quality.value;
-    const localTask = { id: uid(), prompt, mode, model, size: displaySizeLabel(size), quality, creditCost: "-", qualityLabel: currentQualityLabel(), modeLabel: currentModeLabel(), createdAt: Date.now(), images: [] };
+    const localTask = { id: uid(), prompt, mode, model, size: displaySizeLabel(size), quality, creditCost: unitCost, qualityLabel: currentQualityLabel(), modeLabel: currentModeLabel(), createdAt: Date.now(), images: [] };
     state.tasks.unshift(localTask);
     // 入队（非阻塞）：每张一个占位卡 + 一个队列任务；按钮不禁用，用户可继续添加新任务。
     if (!state.genQueue) state.genQueue = [];
     for (let i = 0; i < count; i++) {
       const placeholder = { status: "loading", taskId: "", message: "排队中..." };
       localTask.images.push(placeholder);
-      state.genQueue.push({ localTask, placeholder, prompt, model, size, quality, mode, refs });
+      state.genQueue.push({ localTask, placeholder, prompt, model, size, quality, mode, refs, unitCost });
     }
     render(); saveTasks(); setMessage("任务已提交，排队生成中（可继续添加）", "ok");
     scrollToOutputOnMobile();
@@ -1537,6 +1564,15 @@
       state.genWorkers++;
       void genWorker();
     }
+  }
+  function removeQueuedPlaceholder(job) {
+    if (!job?.localTask || !job?.placeholder) return;
+    job.localTask.images = (job.localTask.images || []).filter(item => item !== job.placeholder);
+    if (!job.localTask.images.length) state.tasks = state.tasks.filter(item => item !== job.localTask);
+  }
+  function clearQueuedForInsufficient() {
+    const queued = state.genQueue ? state.genQueue.splice(0) : [];
+    queued.forEach(removeQueuedPlaceholder);
   }
   async function genWorker() {
     try {
@@ -1558,6 +1594,15 @@
             done = true;
           } catch (err) {
             const message = err.message || String(err);
+            if (err.status === 402 || isInsufficientCredits(message)) {
+              removeQueuedPlaceholder(job);
+              clearQueuedForInsufficient();
+              await refreshMe().catch(() => {});
+              await showInsufficientCredits(job.unitCost, state.identity?.credits);
+              saveTasks(); render();
+              done = true;
+              continue;
+            }
             // 并发满(429)/瞬时冲突 → 退避重试，不算失败
             if (tries < 30 && /429|并发|concurrency|too many|已有正在生成/i.test(message)) {
               tries++;

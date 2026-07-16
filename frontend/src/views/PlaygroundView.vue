@@ -1,6 +1,6 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { api, jsonBody, generatedUrl } from '../api'
 import { auth, refreshMe } from '../auth'
 import { draft } from '../playground'
@@ -12,6 +12,7 @@ import { sortResolutions } from '../utils/format'
 import { copyText } from '../utils/clipboard'
 
 const route = useRoute()
+const router = useRouter()
 
 // ---- credits: the logged-in user's REAL server-side balance ----
 const credits = computed(() => Number(auth.user?.credits || 0))
@@ -57,6 +58,7 @@ const lightbox = ref(null)
 // the muted <video> preview for those cards.
 const thumbFail = reactive({})
 const toast = ref('')
+const insufficient = ref(null)
 let pollTimer = null
 
 const fileKey = (u) => (u || '').split('?')[0].split('/').pop()
@@ -159,7 +161,6 @@ const price = computed(() => {
   return base + (deaiEnabled.value && deai.value ? deaiSurcharge.value : 0)
 })
 const priceLabel = computed(() => price.value == null ? '—' : pointsLabel(price.value))
-const canAfford = computed(() => price.value == null || credits.value >= price.value)
 
 // ---- helpers ----
 function firstOf(arr) {
@@ -362,6 +363,25 @@ async function copyImage(url) {
 // 生图 can request 1–4 images at once: each is an independent task/charge.
 const count = ref(1)
 const batchCount = computed(() => (mode.value === 'image' ? Math.max(1, Math.min(4, count.value)) : 1))
+const totalPrice = computed(() => price.value == null ? null : price.value * batchCount.value)
+const canAfford = computed(() => totalPrice.value == null || credits.value >= totalPrice.value)
+
+function showInsufficientCredits(required = totalPrice.value, balance = credits.value) {
+  insufficient.value = {
+    required: Number(required || 0),
+    balance: Math.max(0, Number(balance || 0)),
+  }
+}
+
+function isInsufficientCredits(value) {
+  const text = String(value || '').toLowerCase()
+  return text.includes('insufficient credits') || text.includes('积分不足')
+}
+
+function goRecharge() {
+  insufficient.value = null
+  router.push('/settings')
+}
 
 // Guard against accidental double-clicks: a second run() within 600ms is
 // ignored (each click otherwise fires an independent, charged generation).
@@ -381,8 +401,12 @@ async function run() {
     return
   }
   const n = batchCount.value
+  // Refresh the server-side balance immediately before submitting. This keeps
+  // another tab or an already-running task from leaving this page with stale credits.
+  await refreshMe()
   if (price.value != null && credits.value < price.value * n) {
-    error.value = `积分不足 — 需要 ${pointsLabel(price.value * n)},余额 ${pointsLabel(credits.value)}`
+    error.value = ''
+    showInsufficientCredits(price.value * n, credits.value)
     return
   }
   error.value = ''
@@ -446,8 +470,14 @@ async function fireOne() {
       task.status = 'running'
     } else {
       await refreshMe()
-      task.status = 'failed'
-      task.error = r.data?.detail || `失败 (${r.status})`
+      const detail = r.data?.detail || `失败 (${r.status})`
+      if (r.status === 402 || isInsufficientCredits(detail)) {
+        tasks.value = tasks.value.filter((item) => item !== task)
+        showInsufficientCredits(chargedPrice, credits.value)
+      } else {
+        task.status = 'failed'
+        task.error = detail
+      }
     }
   } catch (e) {
     await refreshMe()
@@ -767,11 +797,11 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <button @click="run" :disabled="!models.length || price == null || !canAfford"
+      <button @click="run" :disabled="!models.length || price == null"
               class="btn-primary w-full !py-3 flex items-center justify-center gap-2 leading-none">
         <Icon name="spark" class="w-4 h-4 shrink-0" />
         <span class="leading-none">生成<span v-if="batchCount > 1"> {{ batchCount }} 张</span></span>
-        <span v-if="price != null" class="text-xs opacity-70 tabular-nums leading-none">· {{ batchCount > 1 ? pointsLabel(price * batchCount) : priceLabel }}</span>
+        <span v-if="price != null" class="text-xs opacity-70 tabular-nums leading-none">· {{ batchCount > 1 ? pointsLabel(totalPrice) : priceLabel }}</span>
         <span v-if="price != null && !canAfford" class="text-xs text-rose-200 leading-none">积分不足</span>
       </button>
 
@@ -780,6 +810,24 @@ onUnmounted(() => {
            were silently swallowed. -->
       <p v-if="error" class="text-xs text-rose-500 break-all">{{ error }}</p>
 
+    </div>
+
+    <div v-if="insufficient" class="fixed inset-0 z-[90] bg-slate-950/65 backdrop-blur-sm grid place-items-center p-4"
+         @click.self="insufficient = null">
+      <div class="card w-full max-w-sm p-6 text-center shadow-2xl">
+        <div class="w-11 h-11 mx-auto rounded-full bg-amber-100 text-amber-600 grid place-items-center">
+          <Icon name="info" class="w-5 h-5" />
+        </div>
+        <h2 class="text-lg font-semibold text-[color:var(--fg)] mt-4">积分不足</h2>
+        <p class="text-sm text-[color:var(--fg-2)] mt-2">
+          本次需要 <strong class="text-[color:var(--fg)]">{{ pointsLabel(insufficient.required) }}</strong>，
+          当前余额 <strong class="text-[color:var(--fg)]">{{ pointsLabel(insufficient.balance) }}</strong>。
+        </p>
+        <div class="grid grid-cols-2 gap-2 mt-6">
+          <button type="button" class="btn-soft" @click="insufficient = null">取消</button>
+          <button type="button" class="btn-primary" @click="goRecharge">去充值</button>
+        </div>
+      </div>
     </div>
 
     <!-- RIGHT: concurrent gallery — one card per task, newest first; filled up to
