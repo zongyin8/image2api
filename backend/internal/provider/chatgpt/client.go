@@ -109,7 +109,7 @@ func (c *Client) GenerateImage(ctx context.Context, accessToken, prompt, model, 
 	if err != nil {
 		return nil, nil, err
 	}
-	conversationID, fileIDs, sedimentIDs, err := c.startImageGeneration(ctx, submitSession, accessToken, effectivePrompt, reqs, conduitToken, model, uploadedRefs)
+	conversationID, fileIDs, sedimentIDs, startConfirmed, err := c.startImageGeneration(ctx, submitSession, accessToken, effectivePrompt, reqs, conduitToken, model, uploadedRefs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -119,7 +119,7 @@ func (c *Client) GenerateImage(ctx context.Context, accessToken, prompt, model, 
 	refIDs := uploadedRefIDSet(uploadedRefs)
 	fileIDs = dropIDs(fileIDs, refIDs)
 	sedimentIDs = dropIDs(sedimentIDs, refIDs)
-	fileIDs, sedimentIDs, err = c.pollForImage(ctx, session, accessToken, conversationID, fileIDs, sedimentIDs, refIDs, pollBudget(ctx))
+	fileIDs, sedimentIDs, err = c.pollForImage(ctx, session, accessToken, conversationID, fileIDs, sedimentIDs, refIDs, startConfirmed, pollBudget(ctx))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -807,7 +807,7 @@ func (c *Client) prepareImageConversation(ctx context.Context, session tlsclient
 	return strings.TrimSpace(stringValue(data["conduit_token"])), nil
 }
 
-func (c *Client) startImageGeneration(ctx context.Context, session tlsclient.HttpClient, accessToken, prompt string, reqs *chatRequirements, conduitToken, model string, refs []uploadedReference) (string, []string, []string, error) {
+func (c *Client) startImageGeneration(ctx context.Context, session tlsclient.HttpClient, accessToken, prompt string, reqs *chatRequirements, conduitToken, model string, refs []uploadedReference) (string, []string, []string, bool, error) {
 	path := "/backend-api/f/conversation"
 	content := map[string]any{"content_type": "text", "parts": []string{prompt}}
 	metadata := map[string]any{
@@ -849,19 +849,19 @@ func (c *Client) startImageGeneration(ctx context.Context, session tlsclient.Htt
 	body, _ := json.Marshal(payload)
 	req, err := http.NewRequest(http.MethodPost, baseURL+path, bytes.NewReader(body))
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, nil, false, err
 	}
 	req = req.WithContext(ctx)
 	req.Header = c.imageHeaders(accessToken, path, reqs, conduitToken, "text/event-stream")
 	resp, err := session.Do(req)
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("%w: %v", ErrTemporaryUpstream, err)
+		return "", nil, nil, false, fmt.Errorf("%w: %v", ErrTemporaryUpstream, err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		respBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if err := ensureOK(resp.StatusCode, respBody, "image_start"); err != nil {
-			return "", nil, nil, err
+			return "", nil, nil, false, err
 		}
 	}
 	defer resp.Body.Close()
@@ -941,21 +941,12 @@ func (c *Client) startImageGeneration(ctx context.Context, session tlsclient.Htt
 		}
 	}
 	if conversationID == "" {
-		return "", nil, nil, errors.New("chatgpt SSE closed without conversation_id")
+		return "", nil, nil, false, errors.New("chatgpt SSE closed without conversation_id")
 	}
-	// Intermittently (~10% on gpt-5-5-thinking) the stream returns a conversation
-	// id but never emits the async pipeline marker and no image is ever produced —
-	// polling such a conversation only burns the whole budget and surfaces as the
-	// non-retryable "image poll timeout". The async marker is the reliable "the
-	// image generation task actually started" signal, so when it is absent (and
-	// nothing was streamed inline) treat the attempt as a transient upstream
-	// failure. That is retryable: a fresh submission reliably engages the pipeline,
-	// so the pool retries the same account a few times and then fails over to
-	// another account (换号重试) instead of failing the request.
-	if !asyncStarted && len(fileIDs) == 0 && len(sedimentIDs) == 0 {
-		return "", nil, nil, fmt.Errorf("%w: image generation did not start (no async marker)", ErrTemporaryUpstream)
-	}
-	return conversationID, fileIDs, sedimentIDs, nil
+	// Some upstream variants omit all known SSE markers even though the task is
+	// visible in the conversation document. Return the conversation id and let the
+	// poller confirm the start structurally before deciding to fail over.
+	return conversationID, fileIDs, sedimentIDs, asyncStarted || len(fileIDs) > 0 || len(sedimentIDs) > 0, nil
 }
 
 func (c *Client) getConversation(ctx context.Context, session tlsclient.HttpClient, accessToken, conversationID string) (map[string]any, error) {
@@ -1013,7 +1004,7 @@ func pollBudget(ctx context.Context) time.Duration {
 	return budget
 }
 
-func (c *Client) pollForImage(ctx context.Context, session tlsclient.HttpClient, accessToken, conversationID string, initialFileIDs, initialSedimentIDs []string, refIDs map[string]bool, timeout time.Duration) ([]string, []string, error) {
+func (c *Client) pollForImage(ctx context.Context, session tlsclient.HttpClient, accessToken, conversationID string, initialFileIDs, initialSedimentIDs []string, refIDs map[string]bool, startConfirmed bool, timeout time.Duration) ([]string, []string, error) {
 	start := time.Now()
 	fileIDs := dropIDs(append([]string{}, initialFileIDs...), refIDs)
 	sedimentIDs := dropIDs(append([]string{}, initialSedimentIDs...), refIDs)
@@ -1042,11 +1033,17 @@ func (c *Client) pollForImage(ctx context.Context, session tlsclient.HttpClient,
 		newFiles, newSeds := extractImageIDs(conv)
 		fileIDs = mergeStrings(fileIDs, dropIDs(newFiles, refIDs))
 		sedimentIDs = mergeStrings(sedimentIDs, dropIDs(newSeds, refIDs))
+		if !startConfirmed && conversationImageStarted(conv) {
+			startConfirmed = true
+		}
 		// Fail fast on a content-audit refusal: the assistant turn carries the
 		// rejection text and no image will ever land, so polling to timeout only
 		// wastes the whole budget. Only bail while we have no asset yet.
 		if len(fileIDs) == 0 && len(sedimentIDs) == 0 && (conversationRejected(conv) || conversationEndedWithoutImage(conv)) {
 			return nil, nil, ErrContentPolicy
+		}
+		if !startConfirmed && len(fileIDs) == 0 && len(sedimentIDs) == 0 && time.Since(start) >= imageStartConfirmGrace {
+			return nil, nil, fmt.Errorf("%w: image generation did not start (no async marker)", ErrTemporaryUpstream)
 		}
 		if len(fileIDs) > 0 || len(sedimentIDs) > 0 {
 			time.Sleep(2 * time.Second)

@@ -24,6 +24,9 @@ const (
 	// on gpt-5-5-thinking) we must not hold the stream open for the whole ctx
 	// budget, so we break after this grace and fall through to polling.
 	sseAsyncGrace = 10 * time.Second
+	// Confirm marker-less starts through the conversation document before failing
+	// over, without letting a genuinely unstarted task consume the full poll budget.
+	imageStartConfirmGrace = 35 * time.Second
 )
 
 var (
@@ -78,6 +81,41 @@ var (
 func containsAsyncMarker(text string) bool {
 	for _, m := range asyncMarkers {
 		if strings.Contains(text, m) {
+			return true
+		}
+	}
+	return false
+}
+
+func messageStartsImageGeneration(message map[string]any) bool {
+	metadata, _ := message["metadata"].(map[string]any)
+	if metadata != nil {
+		if metadata["image_gen_async"] == true || metadata["image_gen_multi_stream"] == true || metadata["trigger_async_ux"] == true {
+			return true
+		}
+		if stringValue(metadata["image_gen_task_id"]) != "" || strings.Contains(strings.ToLower(stringValue(metadata["async_task_type"])), "image_gen") {
+			return true
+		}
+	}
+	author, _ := message["author"].(map[string]any)
+	if strings.ToLower(strings.TrimSpace(stringValue(author["role"]))) == "tool" {
+		return true
+	}
+	for _, value := range []any{author["name"], message["recipient"]} {
+		name := strings.ToLower(strings.TrimSpace(stringValue(value)))
+		if strings.Contains(name, "image_gen") || strings.HasPrefix(name, "t2uay3k") || name == "dalle" {
+			return true
+		}
+	}
+	return false
+}
+
+func conversationImageStarted(conversation map[string]any) bool {
+	mapping, _ := conversation["mapping"].(map[string]any)
+	for _, rawNode := range mapping {
+		node, _ := rawNode.(map[string]any)
+		message, _ := node["message"].(map[string]any)
+		if message != nil && messageStartsImageGeneration(message) {
 			return true
 		}
 	}
@@ -156,16 +194,11 @@ func conversationEndedWithoutImage(conversation map[string]any) bool {
 		if message == nil {
 			continue
 		}
-		if metadata, _ := message["metadata"].(map[string]any); metadata != nil {
-			if stringValue(metadata["image_gen_task_id"]) != "" || metadata["image_gen_async"] == true {
-				return false
-			}
+		if messageStartsImageGeneration(message) {
+			return false
 		}
 		author, _ := message["author"].(map[string]any)
 		role := strings.ToLower(strings.TrimSpace(stringValue(author["role"])))
-		if role == "tool" {
-			return false
-		}
 		if role == "assistant" {
 			if content, _ := message["content"].(map[string]any); content != nil {
 				// Only tool-invoking content types mean generation is underway.
