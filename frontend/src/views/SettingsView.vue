@@ -399,9 +399,11 @@ async function recharge() {
           <span class="text-xs text-white/40 uppercase tracking-widest">积分余额</span>
         </div>
 
-        <div class="mt-5 flex gap-2">
-          <input v-model="cdkCode" @keyup.enter="redeemCdk" placeholder="输入兑换码 (CDK)"
-                 class="flex-1 rounded-xl bg-white/[0.05] ring-1 ring-white/10 focus:ring-white/30 px-4 py-3 text-sm font-mono uppercase tracking-wider outline-none transition-colors placeholder:text-white/30 placeholder:normal-case placeholder:tracking-normal" />
+        <div class="mt-5 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+          <input v-model="cdkCode" @keyup.enter="redeemCdk" type="text" name="cdk_redeem_code"
+                 autocomplete="one-time-code" autocapitalize="characters" spellcheck="false"
+                 data-1p-ignore data-lpignore="true" placeholder="输入兑换码 (CDK)"
+                 class="min-w-0 rounded-xl bg-white/[0.05] ring-1 ring-white/10 focus:ring-white/30 px-4 py-3 text-sm font-mono uppercase tracking-wider outline-none transition-colors placeholder:text-white/30 placeholder:normal-case placeholder:tracking-normal" />
           <button @click="redeemCdk" :disabled="cdkBusy"
                   class="rounded-xl bg-white text-black hover:bg-white/90 disabled:opacity-40 px-5 py-3 text-sm font-semibold transition-colors">
             {{ cdkBusy ? '兑换中…' : '兑换' }}
