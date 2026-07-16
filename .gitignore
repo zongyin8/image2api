@@ -17,6 +17,7 @@
 .env
 .env.local
 .env.*.local
+/provisioner.env
 /backend/.env
 api_test_video.py       # hardcoded API key
 

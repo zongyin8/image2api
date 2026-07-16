@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>开通管理 · ChatGPT 号池</title>
+<style>
+  :root{--bg:#0f1216;--panel:#171b22;--panel2:#1e242e;--line:#2a323d;--fg:#e6eaf0;--mut:#9aa6b4;--acc:#4c8dff;--ok:#37c98b;--warn:#f0b429;--err:#ff5d5d}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif}
+  .wrap{max-width:1080px;margin:0 auto;padding:20px 16px 60px}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:18px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+  .card .k{color:var(--mut);font-size:12px}
+  .card .v{font-size:22px;font-weight:700;margin-top:2px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+  .panel h2{font-size:15px;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+  .fld{display:flex;flex-direction:column;gap:4px}
+  .fld label{font-size:12px;color:var(--mut)}
+  input,select,textarea{background:var(--panel2);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:8px 10px;font:inherit;outline:none}
+  input:focus,select:focus,textarea:focus{border-color:var(--acc)}
+  input[type=number]{width:110px}
+  textarea{width:100%;min-height:90px;resize:vertical;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+  button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:9px 16px;font:inherit;font-weight:600;cursor:pointer}
+  button:hover{filter:brightness(1.08)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  button.ghost{background:var(--panel2);border:1px solid var(--line);color:var(--fg)}
+  button.danger{background:#3a1f22;border:1px solid #5a2b2b;color:#ff8a8a}
+  .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600}
+  .pill.on{background:rgba(55,201,139,.15);color:var(--ok)}
+  .pill.off{background:rgba(154,166,180,.15);color:var(--mut)}
+  .logs{background:#0b0e12;border:1px solid var(--line);border-radius:10px;padding:10px 12px;height:280px;overflow:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.55}
+  .logs .l{white-space:pre-wrap;word-break:break-all}
+  .c-green{color:var(--ok)} .c-red{color:var(--err)} .c-yellow{color:var(--warn)} .c-info{color:var(--mut)}
+  .hint{color:var(--mut);font-size:12px;margin-top:8px}
+  .flex-sp{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#222b36;border:1px solid var(--line);color:var(--fg);padding:10px 16px;border-radius:10px;opacity:0;transition:.2s;pointer-events:none}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="flex-sp">
+    <div>
+      <h1>开通管理 · ChatGPT 号池</h1>
+      <div class="sub">自动注册 ChatGPT 账号 → 成功后自动导入 网关 账号管理（备用上游）</div>
+    </div>
+    <div><span id="runState" class="pill off">已停止</span></div>
+  </div>
+
+  <div class="grid" id="statCards"></div>
+
+  <div class="panel">
+    <h2>注册控制</h2>
+    <div class="row">
+      <div class="fld">
+        <label>模式</label>
+        <select id="mode">
+          <option value="total">按数量（注册 N 个即停）</option>
+          <option value="low_watermark">按水位（维持可用数）</option>
+        </select>
+      </div>
+      <div class="fld" id="totalWrap">
+        <label>本次数量</label>
+        <input type="number" id="total" min="1" value="20">
+      </div>
+      <div class="fld" id="targetWrap" style="display:none">
+        <label>目标可用数</label>
+        <input type="number" id="target_available" min="1" value="100">
+      </div>
+      <div class="fld">
+        <label>并发线程</label>
+        <input type="number" id="threads" min="1" max="10" value="2">
+      </div>
+      <div class="fld" style="flex:1;min-width:200px">
+        <label>代理（可选，留空直连）</label>
+        <input type="text" id="proxy" placeholder="http://user:pass@host:port" style="width:100%">
+      </div>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button id="btnStart">▶ 启动注册</button>
+      <button id="btnStop" class="ghost">■ 停止</button>
+      <button id="btnReset" class="danger">重置统计</button>
+      <button id="btnSave" class="ghost">保存配置</button>
+    </div>
+    <div class="hint">启动前会自动保存当前配置。号池可用邮箱不足时注册会失败，请先在下方导入邮箱。</div>
+  </div>
+
+  <div class="panel">
+    <h2>邮箱号池 <span id="poolStat" class="pill off">—</span></h2>
+    <div class="fld">
+      <label>批量导入（每行一个，支持 <code>邮箱----密码</code> 等格式）</label>
+      <textarea id="mailText" placeholder="邮箱账号，每行一个…"></textarea>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div class="fld">
+        <label>邮箱类型</label>
+        <select id="emailType">
+          <option value="outlook_oauth">outlook_oauth（Hotmail/Outlook）</option>
+          <option value="">自动/其他</option>
+        </select>
+      </div>
+      <div class="fld">
+        <label>生成别名</label>
+        <select id="genAlias"><option value="0">否</option><option value="1">是</option></select>
+      </div>
+      <div class="fld" id="aliasCountWrap" style="display:none">
+        <label>每个别名数</label>
+        <input type="number" id="aliasCount" min="1" value="5">
+      </div>
+      <button id="btnImport">导入号池</button>
+      <button id="btnPoolRefresh" class="ghost">刷新统计</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="flex-sp"><h2 style="margin:0">实时日志</h2><button id="btnClearView" class="ghost" style="padding:5px 12px">清屏</button></div>
+    <div class="logs" id="logs" style="margin-top:10px"></div>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
+
+<script>
+const API = "/register/api/register";
+const $ = id => document.getElementById(id);
+let polling = true, lastLogLen = 0;
+
+function toast(msg){ const t=$("toast"); t.textContent=msg; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),2200); }
+async function api(path, opts){
+  const r = await fetch(API+path, Object.assign({headers:{"Content-Type":"application/json"}}, opts||{}));
+  if(!r.ok){ let d; try{d=await r.json()}catch{} throw new Error((d&&(d.detail||d.error))||("HTTP "+r.status)); }
+  return r.status===204?{}:r.json();
+}
+function num(v){ return (v===null||v===undefined||v==="")?0:v; }
+
+function renderCards(s){
+  const cards=[
+    ["成功", num(s.success), "c-green"],
+    ["失败", num(s.fail), "c-red"],
+    ["进行中", num(s.running), ""],
+    ["号池可用", num(s.current_available), ""],
+    ["成功率", (num(s.success_rate))+"%", ""],
+    ["平均耗时", (num(s.avg_seconds))+"s", ""],
+  ];
+  $("statCards").innerHTML = cards.map(c=>`<div class="card"><div class="k">${c[0]}</div><div class="v ${c[2]}">${c[1]}</div></div>`).join("");
+}
+function renderLogs(logs){
+  if(!Array.isArray(logs)) return;
+  const box=$("logs"); const atBottom = box.scrollHeight-box.scrollTop-box.clientHeight < 40;
+  box.innerHTML = logs.slice(-400).map(l=>{
+    const lv=(l.level||"info"); return `<div class="l c-${lv}">${(l.text||"").replace(/</g,"&lt;")}</div>`;
+  }).join("");
+  if(atBottom) box.scrollTop=box.scrollHeight;
+}
+function applyConfigToForm(c){
+  if(document.activeElement && ["INPUT","SELECT","TEXTAREA"].includes(document.activeElement.tagName)) return; // 别打断用户输入
+  $("mode").value=c.mode||"total"; toggleMode();
+  $("total").value=c.total||20; $("threads").value=c.threads||2;
+  $("target_available").value=c.target_available||100;
+  if(c.proxy!==undefined) $("proxy").value=c.proxy||"";
+}
+function toggleMode(){
+  const m=$("mode").value;
+  $("totalWrap").style.display = m==="total"?"":"none";
+  $("targetWrap").style.display = m==="low_watermark"?"":"none";
+}
+
+async function poll(){
+  try{
+    const {register:c} = await api("");
+    const s=c.stats||{};
+    const running = num(s.running)>0 || c.enabled;
+    $("runState").className = "pill "+(running?"on":"off");
+    $("runState").textContent = running?"注册中":"已停止";
+    renderCards(s); renderLogs(c.logs); applyConfigToForm(c);
+  }catch(e){ /* 静默,下轮再试 */ }
+  if(polling) setTimeout(poll, 1500);
+}
+async function refreshPool(){
+  try{ const p=await api("/mail-pool/stats");
+    $("poolStat").className="pill on";
+    $("poolStat").textContent=`可用 ${p.pool_available} / 共 ${p.pool_total} · 已用 ${p.pool_used}`;
+  }catch(e){ $("poolStat").textContent="统计失败"; }
+}
+function currentConfig(){
+  return { mode:$("mode").value, total:+$("total").value, threads:+$("threads").value,
+           target_available:+$("target_available").value, proxy:$("proxy").value.trim() };
+}
+$("mode").onchange=toggleMode;
+$("genAlias").onchange=()=>{ $("aliasCountWrap").style.display=$("genAlias").value==="1"?"":"none"; };
+$("btnSave").onclick=async()=>{ try{ await api("",{method:"POST",body:JSON.stringify(currentConfig())}); toast("配置已保存"); }catch(e){ toast("保存失败: "+e.message); } };
+$("btnStart").onclick=async()=>{ try{ await api("",{method:"POST",body:JSON.stringify(currentConfig())}); await api("/start",{method:"POST"}); toast("已启动注册"); }catch(e){ toast("启动失败: "+e.message); } };
+$("btnStop").onclick=async()=>{ try{ await api("/stop",{method:"POST"}); toast("已停止"); }catch(e){ toast("停止失败: "+e.message); } };
+$("btnReset").onclick=async()=>{ if(!confirm("确定重置统计?")) return; try{ await api("/reset",{method:"POST"}); toast("已重置"); }catch(e){ toast("重置失败: "+e.message); } };
+$("btnImport").onclick=async()=>{
+  const text=$("mailText").value.trim(); if(!text){ toast("请粘贴邮箱"); return; }
+  try{ const r=await api("/mail-pool/import",{method:"POST",body:JSON.stringify({
+      text, email_type:$("emailType").value, gen_alias:$("genAlias").value==="1", alias_count:+$("aliasCount").value })});
+    toast("导入完成: 新增 "+(r.added!=null?r.added:JSON.stringify(r))); $("mailText").value=""; refreshPool();
+  }catch(e){ toast("导入失败: "+e.message); }
+};
+$("btnPoolRefresh").onclick=refreshPool;
+$("btnClearView").onclick=()=>{ $("logs").innerHTML=""; };
+
+toggleMode(); poll(); refreshPool(); setInterval(refreshPool, 15000);
+</script>
+</body>
+</html>

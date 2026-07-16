@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ai生图视频</title>
+  <link rel="stylesheet" href="/assets/app.css?v=i2a-20260713l" />
+</head>
+<body>
+  <div id="app">
+    <header class="header">
+      <div class="header-container">
+        <a class="brand" href="/" aria-label="Ai生图视频"><span class="brand-logo">AI</span><span class="brand-text">Ai生图视频</span></a>
+        <h1 class="header-title">简单、快速的 AI 图片/视频生成</h1>
+        <nav class="nav"><a class="nav-btn" href="/new/" title="切换新版界面">切换界面</a><button id="loginBtn" class="nav-btn">&#30331;&#24405;</button><button id="registerBtn" class="nav-btn">&#27880;&#20876;</button><button id="logoutBtn" class="nav-btn hidden">&#36864;&#20986;</button></nav>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <aside class="side-nav" aria-label="&#21151;&#33021;&#23548;&#33322;">
+        <div class="side-title">&#21151;&#33021;&#23548;&#33322;</div>
+        <button class="side-item active" type="button" data-page="home" data-nav-target="createPanel"><span class="side-icon">&#39318;</span><span>&#39318;&#39029;</span></button>
+        <button class="side-item" type="button" data-page="history" data-nav-action="history" data-nav-target="historyPanel"><span class="side-icon">记</span><span>使用日志</span></button>
+        <button class="side-item" type="button" data-page="myimages" data-nav-action="myimages" data-nav-target="myImagesPanel"><span class="side-icon">图</span><span>我的图片</span></button>
+        <button class="side-item" type="button" data-page="api" data-nav-action="api" data-nav-target="apiPanel"><span class="side-icon">API</span><span>API调用</span></button>
+        <button class="side-item" type="button" data-page="recharge" data-nav-action="recharge" data-nav-target="rechargePanel"><span class="side-icon">&#20805;</span><span>&#31215;&#20998;&#20805;&#20540;</span></button>
+        <button class="side-item" type="button" data-page="user" data-nav-action="user" data-nav-target="userPanel"><span class="side-icon">&#25105;</span><span>&#29992;&#25143;&#20013;&#24515;</span></button>
+      </aside>
+      <div class="container main-content">
+        <section class="hero">
+          <h1>简单、快速的 AI 图片/视频生成</h1>
+          <p class="subtitle">&#25903;&#25345;&#25991;&#29983;&#22270;&#12289;&#22270;&#29983;&#22270;&#12289;&#27604;&#20363;&#12289;&#28165;&#26224;&#24230;&#21644;&#39118;&#26684;&#39044;&#35774;&#12290;&#36755;&#20837;&#25551;&#36848;&#21518;&#21363;&#21487;&#29983;&#25104;&#22270;&#29255;&#12290;</p>
+        </section>
+
+        <section class="workspace">
+          <div id="createPanel" class="panel create-panel">
+            <div class="panel-title"><h2>&#21019;&#24314;&#22270;&#29255;</h2><span id="authState" class="pill muted">&#26410;&#30331;&#24405;</span></div>
+            <div class="mode-tabs" role="tablist"><button id="textModeBtn" class="mode-tab active" type="button">&#25991;&#29983;&#22270;</button><button id="imageModeBtn" class="mode-tab" type="button">&#22270;&#29983;&#22270;</button><button id="videoModeBtn" class="mode-tab hidden" type="button">&#35270;&#39057;</button></div>
+            <div id="imageUploadBox" class="upload-box hidden"><input id="imageInput" type="file" accept="image/*" multiple hidden /><button id="pickImageBtn" class="upload-btn" type="button">&#19978;&#20256;&#21442;&#32771;&#22270;</button><button id="pasteImageBtn" class="upload-btn" type="button">&#20174;&#21098;&#36148;&#26495;&#31896;&#36148;</button><div id="referenceList" class="reference-list"></div></div>
+            <p id="vidRefHint" class="muted-text hidden" style="margin:2px 0 6px">15 秒视频不支持参考图；如需图生视频，请选 6 或 10 秒。</p>
+            <label class="field-label" for="promptInput">&#25552;&#31034;&#35789;</label>
+            <textarea id="promptInput" class="prompt" placeholder="&#20363;&#22914;&#65306;&#19968;&#21482;&#25140;&#30528;&#23431;&#33322;&#22836;&#30420;&#30340;&#27224;&#29483;&#65292;&#22352;&#22312;&#26376;&#29699;&#34920;&#38754;&#65292;&#30005;&#24433;&#20809;&#25928;&#65292;&#39640;&#32454;&#33410;"></textarea>
+            <div class="controls" id="imageControls">
+              <label class="control"><span>&#27169;&#22411;</span><select id="modelSelect"><option value="gpt-image-2">gpt-image-2</option></select></label>
+              <label class="control"><span>&#27604;&#20363;</span><select id="sizeSelect"><option value="">&#33258;&#21160;</option><option value="1:1">&#26041;&#24418; 1:1</option><option value="3:4">&#31446;&#29256; 3:4</option><option value="9:16">&#25925;&#20107;&#29256; 9:16</option><option value="4:3">&#27178;&#29256; 4:3</option><option value="16:9">&#23485;&#23631; 16:9</option></select></label>
+              <label class="control"><span>&#28165;&#26224;&#24230;</span><select id="qualitySelect"><option value="low">&#40664;&#35748;</option><option value="medium">&#39640;&#28165;</option><option value="high">&#36229;&#28165;</option></select></label>
+              <div class="control case-control"><span>&nbsp;</span><button id="presetToggleBtn" class="quick-btn" type="button">&#26696;&#20363; &#9662;</button><div id="presetPopover" class="preset-popover hidden"><div id="presetList" class="preset-list"></div></div></div>
+              <label class="control"><span>&#25968;&#37327;</span><select id="countSelect"><option value="1">1 &#24352;</option><option value="2">2 &#24352;</option><option value="3">3 &#24352;</option><option value="4">4 &#24352;</option></select></label>
+            </div>
+            <div class="controls hidden" id="videoControls">
+              <label class="control"><span>&#27169;&#22411;</span><select id="videoModelSelect"><option value="grok-video">grok-video</option></select></label>
+              <label class="control"><span>&#26102;&#38271;</span><select id="vidSeconds"></select></label>
+              <label class="control"><span>&#28165;&#26224;&#24230;</span><select id="vidResolution"><option value="720p">720p</option></select></label>
+              <label class="control"><span>&#27604;&#20363;</span><select id="vidOrient"><option value="1024x1792">&#31446;&#24133; 2:3</option><option value="720x1280">&#31446;&#29256; 9:16</option><option value="1024x1024">&#26041;&#24418; 1:1</option><option value="1792x1024">&#27178;&#24133; 3:2</option><option value="1280x720">&#23485;&#23631; 16:9</option></select></label>
+              <label class="control"><span>&#39118;&#26684;</span><select id="vidPreset"><option value="custom">&#40664;&#35748;</option><option value="fun">&#36259;&#21619;</option><option value="normal">&#24120;&#35268;</option><option value="spicy">&#22823;&#32966;</option></select></label>
+            </div>
+            <div class="generate-row"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0"><span id="costHint" class="cost-hint">本次需要 1 积分</span><label id="autoRetry" title="生成失败时自动重试；提示词违规不会重试" style="display:inline-flex;align-items:center;gap:4px;font-size:13px;color:#5b6572;cursor:pointer;user-select:none;white-space:nowrap;margin-right:2px"><input type="checkbox" id="autoRetryToggle" style="cursor:pointer" /><span>失败重试</span><input type="number" id="autoRetryCount" value="3" min="1" max="20" style="width:44px;padding:2px 4px;border:1px solid #cbd2da;border-radius:6px;text-align:center;font-size:13px" />次</label></div><button id="generateBtn" class="primary-btn">&#24320;&#22987;&#29983;&#25104;</button></div><p id="message" class="message"></p>
+          </div>
+          <div id="outputPanel" class="panel output-panel"><div class="panel-title"><h2>&#29983;&#25104;&#32467;&#26524;</h2><div class="output-actions"><button id="selectModeBtn" class="link-btn">批量下载</button><button id="selectAllBtn" class="link-btn" hidden>&#20840;&#36873;</button><button id="downloadSelectedBtn" class="link-btn" hidden disabled>&#19979;&#36733;&#36873;&#20013;</button><button id="exitSelectBtn" class="link-btn" hidden>退出选择</button><button id="clearBtn" class="link-btn">&#28165;&#31354;</button></div></div><div id="outputList" class="output-list empty"><div class="empty-state"><div class="empty-icon">&#10022;</div><p>&#36824;&#27809;&#26377;&#22270;&#29255;&#65292;&#36755;&#20837;&#25552;&#31034;&#35789;&#21518;&#24320;&#22987;&#29983;&#25104;&#12290;</p></div></div></div>
+        </section>
+
+        <section class="info-panels">
+
+          <div id="historyPanel" class="panel info-panel">
+            <div class="panel-title"><h2>使用日志</h2><button id="refreshHistoryBtn" class="link-btn" type="button">刷新</button></div>
+            <p class="muted-text">查看你的生成日志：缩略图、模型、清晰度/比例、状态与扣费。</p>
+            <div id="historyList" class="history-list"><p class="muted-text">登录后查看使用日志。</p></div>
+          </div>
+          <div id="myImagesPanel" class="panel info-panel">
+            <div class="panel-title"><h2>我的图片</h2><div class="myimg-actions" style="display:flex;gap:8px;flex-wrap:wrap"><button id="myImgSelPageBtn" class="link-btn" type="button">全选本页</button><button id="myImgSelAllBtn" class="link-btn" type="button">全部选中</button><button id="myImgClearBtn" class="link-btn" type="button" hidden>取消选择</button><button id="myImgDownloadBtn" class="link-btn" type="button" disabled>打包下载</button><button id="myImgRefreshBtn" class="link-btn" type="button">刷新</button></div></div>
+            <p class="muted-text" id="myImgSummary">登录后查看我的图片。</p>
+            <div id="myImgGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-top:8px"></div>
+            <div id="myImgPager" style="display:flex;gap:8px;align-items:center;justify-content:center;margin-top:14px;flex-wrap:wrap"></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:8px"><label class="muted-text" style="display:inline-flex;align-items:center;gap:4px">每页<select id="myImgPageSize" style="padding:2px 6px;border:1px solid #cbd2da;border-radius:6px"><option value="15">15</option><option value="20" selected>20</option><option value="50">50</option></select>条</label></div>
+          </div>
+          <div id="apiPanel" class="panel info-panel">
+            <div class="panel-title"><h2>API调用</h2><span id="apiRole" class="pill muted">游客</span></div>
+            <p class="muted-text">查看你的 API Key、Base URL 和 OpenAI 兼容调用方式。</p>
+            <div id="apiInfo" class="user-info"><p>登录后查看 API 调用配置。</p></div>
+          </div>
+          <div id="rechargePanel" class="panel info-panel">
+            <div class="panel-title"><h2>&#31215;&#20998;&#20805;&#20540;</h2><span id="creditState" class="pill muted">&#26410;&#30331;&#24405;</span></div>
+            <p class="muted-text">输入兑换码，兑换后积分会立即加入当前用户余额。</p>
+            <div class="redeem-row"><input id="redeemCodeInput" class="text-input" placeholder="&#35831;&#36755;&#20837;&#20817;&#25442;&#30721;" autocomplete="off" /><button id="redeemBtn" class="primary-btn small" type="button">&#31435;&#21363;&#20817;&#25442;</button></div>
+            <div class="purchase-row"><a id="purchaseBtn" class="secondary-btn purchase-btn hidden" href="#" target="_blank" rel="noopener">立即购买</a></div>
+            <div class="recharge-record-card">
+              <div class="recharge-record-head"><strong>充值记录</strong><button id="refreshRechargeHistoryBtn" class="link-btn" type="button">刷新</button></div>
+              <p class="muted-text">仅显示后台充值、兑换码、注册赠送和后台调整。</p>
+              <div id="rechargeHistoryList" class="history-list"><p class="muted-text">登录后查看充值记录。</p></div>
+            </div>
+            <p id="redeemMessage" class="message"></p>
+          </div>
+          <div id="userPanel" class="panel info-panel">
+            <div class="panel-title"><h2>&#29992;&#25143;&#20013;&#24515;</h2><span id="userRole" class="pill muted">&#28216;&#23458;</span></div>
+            <div id="userInfo" class="user-info"><p>&#30331;&#24405;&#21518;&#26597;&#30475;&#29992;&#25143;&#21517;&#31216;&#12289;&#31215;&#20998;&#20313;&#39069;&#21644;&#20351;&#29992;&#24773;&#20917;&#12290;</p></div>
+          </div>
+        </section>
+      </div>
+    </main>
+    <footer class="footer">Powered by AI Image API</footer>
+  </div>
+  <dialog id="loginDialog" class="dialog"><form method="dialog" class="dialog-card auth-card">
+    <div class="auth-tabs"><button id="loginTabBtn" class="auth-tab active" type="button">登录</button><button id="registerTabBtn" class="auth-tab" type="button">注册</button></div>
+    <div id="loginPane" class="auth-pane"><h3>用户名密码登录</h3><p>使用注册时填写的用户名和密码登录。</p><input id="loginUsernameInput" type="text" placeholder="用户名" autocomplete="username" /><input id="loginPasswordInput" type="password" placeholder="密码" autocomplete="current-password" /></div>
+    <div id="registerPane" class="auth-pane hidden"><input id="registerUsernameInput" type="text" placeholder="用户名（字母/数字/下划线）" autocomplete="username" /><input id="registerPasswordInput" type="password" placeholder="密码（至少 6 位）" autocomplete="new-password" /><input id="registerPasswordConfirmInput" type="password" placeholder="再次输入密码" autocomplete="new-password" /><div class="captcha-row"><input id="captchaAnswerInput" type="text" placeholder="验证码答案" autocomplete="off" /><button id="refreshCaptchaBtn" class="secondary-btn" type="button">刷新验证码</button></div><p id="captchaQuestion" class="captcha-question">验证码加载中...</p><p id="registerResult" class="register-result hidden"></p></div>
+    <div class="dialog-actions"><p id="authInlineMsg" class="auth-inline-msg hidden"></p><button value="cancel" class="secondary-btn">取消</button><button id="saveKeyBtn" value="default" class="primary-btn small">登录</button><button id="registerSubmitBtn" type="button" class="primary-btn small hidden">注册</button></div>
+  </form></dialog>
+  <div id="centerModal" class="center-modal hidden" role="dialog" aria-modal="true" aria-labelledby="centerModalTitle">
+    <div class="center-modal-card">
+      <h3 id="centerModalTitle">提示</h3>
+      <p id="centerModalMessage"></p>
+      <div class="center-modal-actions">
+        <button id="centerModalCancel" class="secondary-btn" type="button">取消</button>
+        <button id="centerModalConfirm" class="primary-btn small" type="button">确定</button>
+      </div>
+    </div>
+  </div>
+  <div id="announceModal" class="center-modal hidden" role="dialog" aria-modal="true" aria-labelledby="announceModalTitle">
+    <div class="center-modal-card">
+      <h3 id="announceModalTitle">📢 公告</h3>
+      <div id="announceModalBody" style="white-space:pre-wrap;word-break:break-word;max-height:50vh;overflow:auto;line-height:1.7;text-align:left;margin:10px 0 16px"></div>
+      <div class="center-modal-actions">
+        <button id="announceModalClose" class="primary-btn small" type="button">我知道了</button>
+      </div>
+    </div>
+  </div>
+  <div id="lightbox" class="lightbox hidden">
+    <button id="prevImageBtn" class="nav-arrow nav-arrow-left" title="Previous" aria-label="Previous">&#8249;</button>
+    <button id="nextImageBtn" class="nav-arrow nav-arrow-right" title="Next" aria-label="Next">&#8250;</button>
+    <div class="lightbox-stage"><button id="closeLightbox" class="close-btn" title="&#20851;&#38381;" aria-label="&#20851;&#38381;">&times;</button><img id="lightboxImg" alt="preview" draggable="false" /></div>
+    <div class="lightbox-toolbar" aria-label="&#22270;&#29255;&#24037;&#20855;&#26639;">
+      <button id="zoomOutBtn" class="tool-btn" title="&#32553;&#23567;" aria-label="&#32553;&#23567;"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/><path d="M7.5 10.5h6"/></svg></button>
+      <button id="zoomInBtn" class="tool-btn" title="&#25918;&#22823;" aria-label="&#25918;&#22823;"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/><path d="M7.5 10.5h6"/><path d="M10.5 7.5v6"/></svg></button>
+      <button id="rotateLeftBtn" class="tool-btn" title="&#24038;&#26059;" aria-label="&#24038;&#26059;"><svg viewBox="0 0 24 24"><path d="M4 7v5h5"/><path d="M5.8 12A7 7 0 1 0 8 6.8"/></svg></button>
+      <button id="rotateRightBtn" class="tool-btn" title="&#21491;&#26059;" aria-label="&#21491;&#26059;"><svg viewBox="0 0 24 24"><path d="M20 7v5h-5"/><path d="M18.2 12A7 7 0 1 1 16 6.8"/></svg></button>
+      <button id="resetViewBtn" class="tool-btn" title="&#37325;&#32622;" aria-label="&#37325;&#32622;"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15.6-6.1"/><path d="M18.6 5.9V2.5"/><path d="M18.6 5.9h-3.4"/><path d="M21 12a9 9 0 0 1-15.6 6.1"/><path d="M5.4 18.1v3.4"/><path d="M5.4 18.1h3.4"/></svg></button>
+      <a id="downloadLightbox" class="tool-btn" title="&#19979;&#36733;" aria-label="&#19979;&#36733;" download="ai-image.png"><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg></a>
+    </div>
+  </div>
+  <script src="/assets/app.portal.js?v=i2a-20260714k-clean" defer></script>
+</body>
+</html>

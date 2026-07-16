@@ -4,6 +4,8 @@
 
 <h1>image2api</h1>
 
+> **Go2Api fork operations:** read [docs/GO2API_FORK.md](docs/GO2API_FORK.md) before production updates or upstream merges.
+
 **Multi-provider AI image / video generation gateway — one OpenAI-compatible API, seven platforms aggregated, a ready-to-run operations system**
 
 <sub>Live instance (brand): [Vivid AI · vividai.run](https://vividai.run)</sub>

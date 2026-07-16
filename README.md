@@ -4,6 +4,8 @@
 
 <h1>image2api</h1>
 
+> **Go2Api 二开维护入口：** [docs/GO2API_FORK.md](docs/GO2API_FORK.md)。服务器更新、合并上游或新会话接手前必须先阅读。
+
 **多供应商 AI 生图 / 生视频网关 —— 一套 OpenAI 兼容 API,聚合七大平台,开箱即用的运营系统**
 
 <sub>线上实例(品牌):[Vivid AI · vividai.run](https://vividai.run)</sub>

@@ -1,0 +1,15 @@
+[Unit]
+Description=Cluster console read-only shim (image2api -> ChatGPT2API contract)
+After=network.target docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/image2api-g2a
+EnvironmentFile=/opt/image2api-g2a/console-shim.env
+ExecStart=/usr/bin/python3 /opt/image2api-g2a/console_shim.py
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target
