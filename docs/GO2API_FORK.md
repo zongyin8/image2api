@@ -52,6 +52,18 @@ Nginx 参考配置是 `ops/nginx-tu.go2api.cc.conf`。其中 Provisioner key 是
 
 仓库提供 `provisioner.env.example` 和 `ops/console-shim.env.example`。生产文件权限应为 `0600`。
 
+## 生产切换基线
+
+`2026-07-16` 已完成以下切换：
+
+- 旧 ChatGPT2API 和 autoheal 容器已删除，旧 Docker 镜像标签已清理。
+- 旧图片、视频和缩略图目录已删除；Nginx `/images/` 仅代理 image2api/RustFS。
+- Provisioner 使用本仓库 Compose 运行，旧账号同步器和 watcher 已移除。
+- 重复的 `image2api-g2a` 孤立容器已删除，卷暂时保留用于回滚。
+- `/opt/gpt` 中剩余文件仅是离线旧配置/数据库，不被活动进程、Nginx 或 systemd 引用。
+
+生产源码检出位于 `/opt/image2api-src`，运行配置和静态部署位于 `/opt/image2api-g2a`。
+
 ## 首次部署
 
 ```bash
@@ -62,9 +74,11 @@ git checkout go2api-migration
 # 主栈按实际生产 .env/Compose 配置启动。
 docker compose up -d --build
 
-# 独立开通管理服务。
-cp provisioner.env.example provisioner.env
-# 编辑 provisioner.env 后：
+# 独立开通管理服务。密钥保存在运行目录，源码目录只放符号链接。
+install -d -m 700 /opt/image2api-g2a
+install -m 600 provisioner.env.example /opt/image2api-g2a/provisioner.env
+# 编辑 /opt/image2api-g2a/provisioner.env 后：
+ln -sfn /opt/image2api-g2a/provisioner.env /opt/image2api-src/provisioner.env
 docker compose -f provisioner/docker-compose.yml up -d --build
 
 # 经典前端与 Vue 静态前端。
