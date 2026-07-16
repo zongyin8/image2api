@@ -138,6 +138,14 @@ nginx -t
 - Console shim 的账号、日志、图片和主机指标正常。
 - 最近日志没有 `no async marker` 误失败回归。
 
+## 4K 自定义上游
+
+- `gpt-image-2` 的 2K/4K 请求由 custom 账号转发到主力机。
+- 生产 `base_url` 是 `https://img-main.2s21.cc:18443`，该域名必须保持 Cloudflare DNS only。
+- 主力机 18443 端口使用 `img-main.2s21.cc` 证书，并直连本机生图应用；Nginx 读写超时均为 600 秒。
+- 不要改回经过 Cloudflare 代理的 `https://tu.2s21.cc`，否则长耗时 4K 请求会出现 520/524。
+- 修改后从 go2api 节点验证：`curl -fsS https://img-main.2s21.cc:18443/healthz`。
+
 ## 回滚
 
 - 主栈：回退到上一个 commit 标记的 backend/web 镜像。
