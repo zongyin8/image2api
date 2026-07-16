@@ -362,6 +362,7 @@ def ep_logs_get(qs):
             "error_message": r.get("error") or "",
             "account_email": r.get("account") or "",
             "provider": r.get("provider") or "",
+            "source": r.get("source") or "",
             "resolution": r.get("resolution") or "",
             "ratio": r.get("ratio") or "",
             "request_text": r.get("prompt") or "",
