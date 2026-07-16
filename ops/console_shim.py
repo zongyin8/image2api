@@ -229,12 +229,14 @@ def _metrics():
     try:
         st, dash = i2a("GET", "/admin/api/dashboard")
         today = dash.get("today") or {}
+        _, stats = i2a("GET", "/admin/api/stats")
         tasks = {
             "running": running,
             "queued": max(0, int(today.get("pending") or 0) - running),
             "today_success": int(today.get("success") or 0),
             "today_error": int(today.get("failed") or 0),
             "today_total": int(today.get("total") or 0),
+            "today_avg_duration_ms": int(stats.get("avg_elapsed_ms_24h") or stats.get("avg_elapsed_ms") or 0),
             "billed_success": int(today.get("success") or 0),
             "billed_failed": int(today.get("failed") or 0),
             "today_node_images": int(today.get("success") or 0),  # 本机=实际产出=成功数
@@ -243,7 +245,7 @@ def _metrics():
     except Exception:
         tasks = prev.get("tasks") or {
             "running": 0, "queued": 0, "today_success": 0, "today_error": 0,
-            "today_total": 0, "billed_success": 0, "billed_failed": 0,
+            "today_total": 0, "today_avg_duration_ms": 0, "billed_success": 0, "billed_failed": 0,
             "today_node_images": 0, "today_node_failed": 0}
     return {
         "generated_at": fmt_ts(time.time()),
