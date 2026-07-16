@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from . import outlook_pool
 from .account_sink import sync_pending
+from .host_metrics import collect as collect_host_metrics
 from .register_service import register_service
 
 
@@ -47,6 +48,12 @@ def require_admin(authorization: str | None) -> None:
 @app.get("/healthz")
 def healthz() -> dict:
     return {"ok": True, "service": "image2api-provisioner"}
+
+
+@app.get("/api/system/metrics")
+def system_metrics(authorization: str | None = Header(default=None)) -> dict:
+    require_admin(authorization)
+    return collect_host_metrics()
 
 
 @app.get("/api/register")
