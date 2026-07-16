@@ -987,7 +987,10 @@ func (c *Client) getConversation(ctx context.Context, session tlsclient.HttpClie
 // while the context still backstops a truly stuck request.
 func pollBudget(ctx context.Context) time.Duration {
 	const (
-		maxBudget = 6 * time.Minute
+		// Leave enough of the 8-minute generation deadline for a second account
+		// when the first conversation is stuck. Successful 1K jobs are normally
+		// below this threshold, while a real stall should fail over promptly.
+		maxBudget = 210 * time.Second
 		headroom  = 25 * time.Second
 	)
 	deadline, ok := ctx.Deadline()
@@ -1057,7 +1060,7 @@ func (c *Client) pollForImage(ctx context.Context, session tlsclient.HttpClient,
 		}
 		time.Sleep(5 * time.Second)
 	}
-	return nil, nil, errors.New("image poll timeout")
+	return nil, nil, fmt.Errorf("%w: image poll timeout", ErrTemporaryUpstream)
 }
 
 // uploadedRefIDSet collects every id belonging to the user's uploaded

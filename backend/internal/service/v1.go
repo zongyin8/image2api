@@ -440,6 +440,26 @@ func runWithFailover(group []model.ModelConfig, attempt func(cfg *model.ModelCon
 	return nil, lastErr
 }
 
+// filterAvailableModelGroup removes alias backends that cannot currently run.
+// If none are available, retain the original group so the normal execution path
+// records one useful provider error instead of silently turning it into unknown.
+func filterAvailableModelGroup(group []model.ModelConfig, available func(*model.ModelConfig) (bool, error)) ([]model.ModelConfig, error) {
+	filtered := make([]model.ModelConfig, 0, len(group))
+	for i := range group {
+		ok, err := available(&group[i])
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			filtered = append(filtered, group[i])
+		}
+	}
+	if len(filtered) == 0 {
+		return group, nil
+	}
+	return filtered, nil
+}
+
 // prepareImageExecution resolves the alias group for the requested model and runs
 // the generation with weight-priority + failover across the group's backends.
 // A missing/single-backend lookup collapses to exactly one attempt through the
@@ -458,6 +478,13 @@ func (s *V1Service) prepareImageExecution(ctx context.Context, principal *APIPri
 			forced = &group[0]
 		}
 		return s.prepareImageExecutionOnce(ctx, principal, in, source, charge, forced)
+	}
+	group, gerr = filterAvailableModelGroup(group, func(cfg *model.ModelConfig) (bool, error) {
+		provider := s.effectiveImageProvider(ctx, cfg, in.Resolution)
+		return s.hasActiveProviderToken(ctx, provider, "image")
+	})
+	if gerr != nil {
+		return nil, gerr
 	}
 	return runWithFailover(group, func(cfg *model.ModelConfig) (map[string]any, error) {
 		return s.prepareImageExecutionOnce(ctx, principal, in, source, charge, cfg)

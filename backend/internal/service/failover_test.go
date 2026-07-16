@@ -132,3 +132,31 @@ func TestRunWithFailover_FirstSuccessShortCircuits(t *testing.T) {
 		t.Fatalf("served by %v, want adobe", res["model"])
 	}
 }
+
+func TestFilterAvailableModelGroupSkipsUnavailableBackend(t *testing.T) {
+	group := []model.ModelConfig{foCfg("runway", 10), foCfg("adobe", 5)}
+
+	filtered, err := filterAvailableModelGroup(group, func(cfg *model.ModelConfig) (bool, error) {
+		return cfg.ID == "adobe", nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(filtered) != 1 || filtered[0].ID != "adobe" {
+		t.Fatalf("filtered = %v, want adobe only", filtered)
+	}
+}
+
+func TestFilterAvailableModelGroupKeepsOriginalWhenNoneAvailable(t *testing.T) {
+	group := []model.ModelConfig{foCfg("runway", 10), foCfg("adobe", 5)}
+
+	filtered, err := filterAvailableModelGroup(group, func(*model.ModelConfig) (bool, error) {
+		return false, nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got := fmt.Sprint([]string{filtered[0].ID, filtered[1].ID}); got != "[runway adobe]" {
+		t.Fatalf("filtered = %v, want original group", filtered)
+	}
+}
