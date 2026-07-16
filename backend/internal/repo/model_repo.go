@@ -44,6 +44,27 @@ func (r *ModelRepository) Get(ctx context.Context, modelID string) (*model.Model
 	return &item, nil
 }
 
+// GetGroup returns every ENABLED config that answers to `name` — matched exactly
+// like Get (by alias when the config has one, else by id) — ordered by weight
+// (desc, newest-first on ties) so the highest-priority backend comes first.
+//
+// This powers generation failover: one logical model name (e.g. "nano-banana-2")
+// can be served by several provider-specific configs that share that alias
+// (adobe-nano-banana-2, runway-nano-banana-2, …). The scheduler tries them in
+// weight order and falls over to the next when one is unavailable. Disabled
+// configs are skipped here; a single-config lookup still goes through Get so the
+// classic "disabled → unknown model" error path is preserved by the caller.
+func (r *ModelRepository) GetGroup(ctx context.Context, name string) ([]model.ModelConfig, error) {
+	var items []model.ModelConfig
+	if err := r.db.WithContext(ctx).
+		Where("enabled = ? AND ((alias <> '' AND alias = ?) OR (alias = '' AND id = ?))", true, name, name).
+		Order("weight desc, created_at desc").
+		Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 func (r *ModelRepository) NameMap(ctx context.Context) (map[string]string, error) {
 	items, err := r.List(ctx)
 	if err != nil {

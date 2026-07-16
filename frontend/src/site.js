@@ -7,7 +7,7 @@ import { reactive } from 'vue'
 const BASE = import.meta.env.VITE_API_BASE || ''
 
 export const site = reactive({
-  title: 'Vivid',
+  title: 'Go2Api',
   logo: '',
   subtitle: '',
   cdkRedeemEnabled: true,

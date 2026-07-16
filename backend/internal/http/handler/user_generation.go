@@ -424,7 +424,7 @@ func (h *UserGenerationHandler) catalogEntries(c *gin.Context) ([]gin.H, error) 
 			"description":          "ChatGPT image generation",
 		},
 		{
-			"id":                   "firefly-gpt-image-2",
+			"id":                   "adobe-gpt-image-2",
 			"provider":             "adobe",
 			"type":                 "image",
 			"ratios":               []string{"1:1", "5:4", "9:16", "21:9", "16:9", "4:3", "3:2", "4:5", "3:4", "2:3"},
@@ -434,7 +434,7 @@ func (h *UserGenerationHandler) catalogEntries(c *gin.Context) ([]gin.H, error) 
 			"description":          "Adobe Firefly GPT Image",
 		},
 		{
-			"id":             "firefly-image-5",
+			"id":             "adobe-image-5",
 			"provider":       "adobe",
 			"type":           "image",
 			"ratios":         []string{"1:1", "16:9", "9:16", "4:3", "3:4"},
@@ -443,7 +443,7 @@ func (h *UserGenerationHandler) catalogEntries(c *gin.Context) ([]gin.H, error) 
 			"description":    "Adobe Firefly Image 5",
 		},
 		{
-			"id":                   "flux-kontext-max",
+			"id":                   "adobe-flux-kontext-max",
 			"provider":             "adobe",
 			"type":                 "image",
 			"ratios":               []string{"1:1", "16:9", "9:16", "4:3", "3:4"},
@@ -453,7 +453,7 @@ func (h *UserGenerationHandler) catalogEntries(c *gin.Context) ([]gin.H, error) 
 			"description":          "Adobe Flux Kontext Max",
 		},
 		{
-			"id":                   "nano-banana-2",
+			"id":                   "runway-nano-banana-2",
 			"provider":             "runway",
 			"type":                 "image",
 			"ratios":               []string{"1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9"},
@@ -464,7 +464,7 @@ func (h *UserGenerationHandler) catalogEntries(c *gin.Context) ([]gin.H, error) 
 			"description":          "Runway Nano Banana 2 (图/参考图)",
 		},
 		{
-			"id":                   "nano-banana-pro",
+			"id":                   "runway-nano-banana-pro",
 			"provider":             "runway",
 			"type":                 "image",
 			"ratios":               []string{"1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9"},
@@ -598,7 +598,7 @@ func (h *UserGenerationHandler) publicModels() ([]gin.H, error) {
 			"stub":        false,
 		},
 		{
-			"id":          "firefly-gpt-image-2",
+			"id":          "adobe-gpt-image-2",
 			"provider":    "adobe",
 			"kind":        "image",
 			"ratios":      []string{"1:1", "5:4", "9:16", "21:9", "16:9", "4:3", "3:2", "4:5", "3:4", "2:3"},
@@ -607,7 +607,7 @@ func (h *UserGenerationHandler) publicModels() ([]gin.H, error) {
 			"stub":        false,
 		},
 		{
-			"id":          "firefly-image-5",
+			"id":          "adobe-image-5",
 			"provider":    "adobe",
 			"kind":        "image",
 			"ratios":      []string{"1:1", "16:9", "9:16", "4:3", "3:4"},
@@ -616,7 +616,7 @@ func (h *UserGenerationHandler) publicModels() ([]gin.H, error) {
 			"stub":        false,
 		},
 		{
-			"id":          "flux-kontext-max",
+			"id":          "adobe-flux-kontext-max",
 			"provider":    "adobe",
 			"kind":        "image",
 			"ratios":      []string{"1:1", "16:9", "9:16", "4:3", "3:4"},
@@ -625,7 +625,7 @@ func (h *UserGenerationHandler) publicModels() ([]gin.H, error) {
 			"stub":        false,
 		},
 		{
-			"id":          "nano-banana-2",
+			"id":          "runway-nano-banana-2",
 			"provider":    "runway",
 			"kind":        "image",
 			"ratios":      []string{"1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9"},
@@ -634,7 +634,7 @@ func (h *UserGenerationHandler) publicModels() ([]gin.H, error) {
 			"stub":        false,
 		},
 		{
-			"id":          "nano-banana-pro",
+			"id":          "runway-nano-banana-pro",
 			"provider":    "runway",
 			"kind":        "image",
 			"ratios":      []string{"1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9"},

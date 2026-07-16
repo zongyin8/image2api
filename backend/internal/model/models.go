@@ -63,6 +63,7 @@ type APIKey struct {
 	Name       string `gorm:"size:100;not null"`
 	KeyPreview string `gorm:"size:32;not null"`
 	KeyHash    string `gorm:"size:255;uniqueIndex;not null"`
+	RawKey     string `gorm:"type:text"` // 明文密钥,供用户直接复制(承接老前端一键复制体验)
 	CreatedAt  time.Time
 	LastUsedAt *time.Time
 }
@@ -248,6 +249,7 @@ func AutoMigrateModels() []any {
 		&StatCounter{},
 		&ConcurrencyGroup{},
 		&Order{},
+		&CreditLog{},
 	}
 }
 
@@ -268,6 +270,20 @@ type Order struct {
 	PaidAt      *time.Time
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+}
+
+// CreditLog is an append-only "入账流水" record: one row per credit INCREASE to a
+// user's balance (充值 / 兑换码 / 赠送 / 管理员调整 / 易支付到账). Debits (出图扣费)
+// are NOT recorded here — they live in the generation event log. Amount is always
+// positive (入账), BalanceAfter snapshots the user's balance right after the grant.
+type CreditLog struct {
+	ID           string    `gorm:"primaryKey;size:32"`
+	UserID       string    `gorm:"size:32;index;not null"`
+	Type         string    `gorm:"size:32;index;not null"` // recharge | redeem | gift | admin | order
+	Amount       float64   `gorm:"not null"`               // 正数 = 入账
+	BalanceAfter float64   `gorm:"not null;default:0"`     // 到账后余额
+	Title        string    `gorm:"size:255"`               // 说明
+	CreatedAt    time.Time `gorm:"index"`
 }
 
 // ConcurrencyGroup caps how many generations a member user may run AT ONCE

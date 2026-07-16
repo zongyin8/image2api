@@ -12,16 +12,18 @@ import (
 )
 
 type CDKService struct {
-	cdks     *repo.CDKRepository
-	users    *repo.UserRepository
-	settings *repo.SiteSettingRepository
+	cdks       *repo.CDKRepository
+	users      *repo.UserRepository
+	settings   *repo.SiteSettingRepository
+	creditLogs *CreditLogService
 }
 
-func NewCDKService(cdks *repo.CDKRepository, users *repo.UserRepository, settings *repo.SiteSettingRepository) *CDKService {
+func NewCDKService(cdks *repo.CDKRepository, users *repo.UserRepository, settings *repo.SiteSettingRepository, creditLogs *CreditLogService) *CDKService {
 	return &CDKService{
-		cdks:     cdks,
-		users:    users,
-		settings: settings,
+		cdks:       cdks,
+		users:      users,
+		settings:   settings,
+		creditLogs: creditLogs,
 	}
 }
 
@@ -160,6 +162,9 @@ func (s *CDKService) Redeem(ctx context.Context, userID, code string) (map[strin
 	if err != nil {
 		return nil, err
 	}
+
+	// 记一条入账流水(兑换码)。
+	s.creditLogs.LogCredit(ctx, userID, CreditLogRedeem, float64(item.Amount), updated.Credits, "兑换码 "+item.Code)
 
 	return map[string]any{
 		"amount":  item.Amount,

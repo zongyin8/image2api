@@ -59,16 +59,11 @@ func ValidateUsername(username string) (string, error) {
 }
 
 func ValidatePassword(password string) error {
+	// 放宽:只要求长度 ≥6(上限保留),不再强制大小写/数字/符号。
 	length := utf8.RuneCountInString(password)
-	if length < MinPasswordLength || length > MaxPasswordLength {
-		return errors.New("密码长度需为 8 到 24 个字符")
+	if length < 6 || length > MaxPasswordLength {
+		return errors.New("密码长度需为 6 到 24 个字符")
 	}
-
-	var hasLetter bool
-	var hasUpper bool
-	var hasLower bool
-	var hasDigit bool
-	var hasSymbol bool
 	for _, r := range password {
 		if unicode.IsSpace(r) {
 			return errors.New("密码不能包含空白字符")
@@ -76,24 +71,6 @@ func ValidatePassword(password string) error {
 		if !isAllowedPasswordRune(r) {
 			return errors.New("密码包含不允许的字符")
 		}
-		if unicode.IsLetter(r) {
-			hasLetter = true
-			if unicode.IsUpper(r) {
-				hasUpper = true
-			}
-			if unicode.IsLower(r) {
-				hasLower = true
-			}
-		}
-		if unicode.IsDigit(r) {
-			hasDigit = true
-		}
-		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
-			hasSymbol = true
-		}
-	}
-	if !hasLetter || !hasUpper || !hasLower || !hasDigit || !hasSymbol {
-		return errors.New("密码必须同时包含大写字母、小写字母、数字和符号")
 	}
 	return nil
 }

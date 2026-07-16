@@ -122,11 +122,18 @@ const currentLabel = computed(() => {
           </span>
           <span class="text-[10px] uppercase tracking-[0.3em] text-[color:var(--fg-faint)]">{{ route.path === '/' ? 'AI 生图 · 生视频' : currentLabel }}</span>
         </div>
-        <router-link v-if="showBalance" to="/settings"
-                     class="text-xs text-[color:var(--fg-2)] hover:text-[color:var(--fg)] tabular-nums transition-colors">
-          余额 <span class="text-[color:var(--fg)] font-semibold">{{ creditsLabel }}</span>
-          <span class="text-[color:var(--fg-faint)] ml-1">· 充值</span>
-        </router-link>
+        <div class="flex items-center gap-4">
+          <a href="/" title="切换到经典界面"
+             class="text-xs text-[color:var(--fg-2)] hover:text-[color:var(--fg)] transition-colors inline-flex items-center gap-1">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>
+            切换界面
+          </a>
+          <router-link v-if="showBalance" to="/settings"
+                       class="text-xs text-[color:var(--fg-2)] hover:text-[color:var(--fg)] tabular-nums transition-colors">
+            余额 <span class="text-[color:var(--fg)] font-semibold">{{ creditsLabel }}</span>
+            <span class="text-[color:var(--fg-faint)] ml-1">· 充值</span>
+          </router-link>
+        </div>
       </header>
 
       <main :class="['relative z-10 px-8 md:px-14 pb-24 pt-2', { 'public-dark': isDark }]">

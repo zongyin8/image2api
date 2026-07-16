@@ -45,6 +45,7 @@ type CreditSettings struct {
 	CheckinReward    int  `json:"checkin_reward"`
 	InviteEnabled    bool `json:"invite_enabled"`
 	InviteReward     int  `json:"invite_reward"`
+	RegisterGift     int  `json:"register_gift"` // 新用户注册赠送积分(0=不送)
 	CDKRedeemEnabled bool `json:"cdk_redeem_enabled"`
 }
 
@@ -405,11 +406,13 @@ func (s *AppSettingsService) Credits(ctx context.Context) (*CreditSettings, erro
 		return nil, err
 	}
 	cdkRaw, _ := s.settings.GetValue(ctx, "credits.cdk_redeem_enabled")
+	regGiftRaw, _ := s.settings.GetValue(ctx, "credits.register_gift")
 	return &CreditSettings{
 		CheckinEnabled:   parseBoolSetting(checkinEnabledRaw, true),
 		CheckinReward:    parseIntSetting(checkinRewardRaw, 3),
 		InviteEnabled:    parseBoolSetting(inviteEnabledRaw, true),
 		InviteReward:     parseIntSetting(inviteRewardRaw, 3),
+		RegisterGift:     parseIntSetting(regGiftRaw, 0),
 		CDKRedeemEnabled: parseBoolSetting(cdkRaw, true),
 	}, nil
 }
@@ -421,11 +424,15 @@ func (s *AppSettingsService) SaveCredits(ctx context.Context, in CreditSettings)
 	if in.InviteReward < 0 {
 		in.InviteReward = 0
 	}
+	if in.RegisterGift < 0 {
+		in.RegisterGift = 0
+	}
 	if err := s.settings.UpsertValues(ctx, map[string]string{
 		"credits.checkin_enabled":   strconv.FormatBool(in.CheckinEnabled),
 		"credits.checkin_reward":    strconv.Itoa(in.CheckinReward),
 		"credits.invite_enabled":    strconv.FormatBool(in.InviteEnabled),
 		"credits.invite_reward":     strconv.Itoa(in.InviteReward),
+		"credits.register_gift":     strconv.Itoa(in.RegisterGift),
 		"credits.cdk_redeem_enabled": strconv.FormatBool(in.CDKRedeemEnabled),
 	}); err != nil {
 		return nil, err

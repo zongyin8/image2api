@@ -31,34 +31,36 @@ onMounted(async () => {
 // only have the server's masked preview (the plaintext is never stored).
 const apiKey = ref('')        // full plaintext — present only right after minting
 const keyPreview = ref('')    // masked preview from the server (persists)
+const keyPlain = ref('')      // 持久保存的完整明文(GET 返回),可随时直接复制
 const apiKeyRevealed = ref(false)
 const hasKey = computed(() => !!apiKey.value || !!keyPreview.value)
 
 async function loadKey() {
   const r = await api('/auth/api-key')
-  if (r.ok) keyPreview.value = r.data?.key?.key_preview || ''
+  if (r.ok) { keyPreview.value = r.data?.key?.key_preview || ''; keyPlain.value = r.data?.key?.plain || '' }
 }
 onMounted(loadKey)
 
-// Uniform mask for the hidden / persisted state — always "***" so the just-minted
-// preview and the server-stored preview read the same (no sk-xxx…yyyy mismatch).
-const maskedKey = computed(() => (apiKey.value || keyPreview.value) ? '***' : '')
+// 展示始终用服务端掩码预览(sk-xxx••••••-xxxxx),复制走完整明文。
+const maskedKey = computed(() => keyPreview.value || '')
 
 async function generateKey() {
   if (hasKey.value && !confirm('已有 Key — 重新生成会让旧 Key 立刻失效,确认?')) return
   const r = await api('/auth/api-key', jsonBody('POST', {}))
   if (!r.ok) { toast(r.data?.detail || '生成失败'); return }
   apiKey.value = r.data.key
+  keyPlain.value = r.data.key
   keyPreview.value = r.data.preview || ''
   apiKeyRevealed.value = true
-  toast('新 Key 已生成 — 请立刻复制保存(只显示这一次)')
+  toast('新 Key 已生成并可直接复制')
 }
 
 async function copyKey() {
-  if (!hasKey.value) return
+  const plain = apiKey.value || keyPlain.value
+  if (!plain) { toast('还没有可复制的完整 Key,请先生成'); return }
   try {
-    await navigator.clipboard.writeText(apiKey.value || keyPreview.value)
-    toast(apiKey.value ? '已复制完整 Key' : '完整 Key 仅生成时显示一次,这里只能复制预览')
+    await navigator.clipboard.writeText(plain)
+    toast('已复制完整 Key')
   } catch { toast('复制失败') }
 }
 

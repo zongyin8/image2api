@@ -192,7 +192,7 @@ func (c *Client) GenerateImage(ctx context.Context, token, modelID, prompt, aspe
 	// "image5", resolutionLevel, top-level aspectRatio label, no modelId/size).
 	endpoint := submitURL
 	var candidates []map[string]any
-	if modelID == "firefly-image-5" {
+	if IsImage5(modelID) {
 		endpoint = image5SubmitURL
 		candidates = []map[string]any{buildImage5Payload(prompt, aspectRatio, resolution, blobIDs)}
 	} else {

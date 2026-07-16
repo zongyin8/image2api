@@ -29,6 +29,7 @@ type Handlers struct {
 	Announcement  *handler.AnnouncementHandler
 	Payment       *handler.PaymentHandler
 	BannedWords   *handler.BannedWordsHandler
+	CreditLog     *handler.CreditLogHandler
 }
 
 func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.Engine {
@@ -99,6 +100,7 @@ func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.
 		userAuthed.GET("/pay/orders", handlers.Payment.MyOrders)
 		userAuthed.GET("/pay/orders/:id", handlers.Payment.OrderStatus)
 		userAuthed.POST("/pay/orders/:id/continue", handlers.Payment.ContinueOrder)
+		userAuthed.GET("/credit-logs", handlers.CreditLog.List)
 	}
 
 	authed := engine.Group("/admin/api")

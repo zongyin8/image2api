@@ -29,13 +29,14 @@ var (
 // PaymentService drives 易支付 recharge orders: create → pay → async-notify →
 // credit points. Config lives in site settings (pay.*).
 type PaymentService struct {
-	orders   *repo.OrderRepository
-	users    *repo.UserRepository
-	settings *repo.SiteSettingRepository
+	orders     *repo.OrderRepository
+	users      *repo.UserRepository
+	settings   *repo.SiteSettingRepository
+	creditLogs *CreditLogService
 }
 
-func NewPaymentService(orders *repo.OrderRepository, users *repo.UserRepository, settings *repo.SiteSettingRepository) *PaymentService {
-	return &PaymentService{orders: orders, users: users, settings: settings}
+func NewPaymentService(orders *repo.OrderRepository, users *repo.UserRepository, settings *repo.SiteSettingRepository, creditLogs *CreditLogService) *PaymentService {
+	return &PaymentService{orders: orders, users: users, settings: settings, creditLogs: creditLogs}
 }
 
 type PaySettings struct {
@@ -234,10 +235,19 @@ func (s *PaymentService) HandleNotify(ctx context.Context, params map[string]str
 		return false, nil // duplicate / already handled
 	}
 	// Credit points + bump the user's cumulative recharge total, atomically.
-	_, err = s.users.Update(ctx, order.UserID, map[string]any{
+	updated, err := s.users.Update(ctx, order.UserID, map[string]any{
 		"credits":        gorm.Expr("credits + ?", order.Points),
 		"recharge_total": gorm.Expr("recharge_total + ?", order.Amount),
 	})
+	if err == nil {
+		// 记一条入账流水(易支付到账)。updated 已带最新余额。
+		bal := 0.0
+		if updated != nil {
+			bal = updated.Credits
+		}
+		s.creditLogs.LogCredit(ctx, order.UserID, CreditLogOrder, float64(order.Points), bal,
+			fmt.Sprintf("易支付充值 ￥%s", strconv.FormatFloat(order.Amount, 'f', -1, 64)))
+	}
 	return err == nil, err
 }
 

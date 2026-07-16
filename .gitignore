@@ -39,6 +39,8 @@ api_test_video.py       # hardcoded API key
 node_modules/
 /frontend/dist/
 /frontend/.vite/
+/frontend/.ctmp/
+/frontend/.chrometmp/
 
 # Go build/module caches (regenerated)
 .gocache/

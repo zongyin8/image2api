@@ -23,22 +23,24 @@ var ErrNotFound = errors.New("not found")
 var ErrModelAliasCollision = errors.New("model alias collision")
 
 type AdminWriteService struct {
-	users    *repo.UserRepository
-	showcase *repo.ShowcaseRepository
-	models   *repo.ModelRepository
-	events   *repo.EventRepository
-	apiKeys  *repo.APIKeyRepository
-	tokens   *repo.TokenRepository
+	users      *repo.UserRepository
+	showcase   *repo.ShowcaseRepository
+	models     *repo.ModelRepository
+	events     *repo.EventRepository
+	apiKeys    *repo.APIKeyRepository
+	tokens     *repo.TokenRepository
+	creditLogs *CreditLogService
 }
 
-func NewAdminWriteService(users *repo.UserRepository, showcase *repo.ShowcaseRepository, models *repo.ModelRepository, events *repo.EventRepository, apiKeys *repo.APIKeyRepository, tokens *repo.TokenRepository) *AdminWriteService {
+func NewAdminWriteService(users *repo.UserRepository, showcase *repo.ShowcaseRepository, models *repo.ModelRepository, events *repo.EventRepository, apiKeys *repo.APIKeyRepository, tokens *repo.TokenRepository, creditLogs *CreditLogService) *AdminWriteService {
 	return &AdminWriteService{
-		users:    users,
-		showcase: showcase,
-		models:   models,
-		events:   events,
-		apiKeys:  apiKeys,
-		tokens:   tokens,
+		users:      users,
+		showcase:   showcase,
+		models:     models,
+		events:     events,
+		apiKeys:    apiKeys,
+		tokens:     tokens,
+		creditLogs: creditLogs,
 	}
 }
 
@@ -223,6 +225,10 @@ func (s *AdminWriteService) AdjustUserCredits(ctx context.Context, userID string
 			return nil, ErrNotFound
 		}
 		return nil, err
+	}
+	// 仅入账(delta>0)记流水;扣减不记(那属于出图/退款范畴)。
+	if delta > 0 {
+		s.creditLogs.LogCredit(ctx, userID, CreditLogAdmin, delta, user.Credits, "管理员调整")
 	}
 	return user, nil
 }
@@ -493,9 +499,11 @@ func (s *AdminWriteService) validateModelNameSpace(ctx context.Context, selfID, 
 			if item.ID == candidateAlias {
 				return fmt.Errorf("%w: alias %q collides with existing model id %q", ErrModelAliasCollision, candidateAlias, item.ID)
 			}
-			if existingAlias != "" && existingAlias == candidateAlias {
-				return fmt.Errorf("%w: alias %q collides with existing alias %q", ErrModelAliasCollision, candidateAlias, existingAlias)
-			}
+			// NOTE: two configs sharing the SAME alias is intentionally allowed —
+			// it defines a failover group (e.g. adobe-nano-banana-2 and
+			// runway-nano-banana-2 both aliased "nano-banana-2"). The generation
+			// scheduler (GetGroup + runWithFailover) picks the highest-weight
+			// backend and falls over to the next when one is unavailable.
 		}
 	}
 	return nil

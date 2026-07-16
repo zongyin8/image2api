@@ -106,13 +106,15 @@ func NewApp(ctx context.Context) (*App, error) {
 	cgroupSvc := service.NewConcurrencyGroupService(cgroupRepo, concSvc)
 	announcementSvc := service.NewAnnouncementService(siteRepo, userRepo)
 	orderRepo := repo.NewOrderRepository(db)
-	paymentSvc := service.NewPaymentService(orderRepo, userRepo, siteRepo)
+	creditLogRepo := repo.NewCreditLogRepository(db)
+	creditLogSvc := service.NewCreditLogService(creditLogRepo)
+	paymentSvc := service.NewPaymentService(orderRepo, userRepo, siteRepo, creditLogSvc)
 	sessionSvc := service.NewSessionService(rdb, cfg.SessionTTL, cfg.SessionSlideAfter)
 	emailCodeSvc := service.NewEmailCodeService(rdb)
 	smtpSvc := service.NewSMTPService()
 	rateLimitSvc := service.NewRateLimitService(rdb)
 	rustfsClient := storage.New(cfg.RustFSEndpoint, cfg.RustFSBucket, cfg.RustFSAccessKey, cfg.RustFSSecretKey)
-	authSvc := service.NewAuthService(userRepo, siteRepo, sessionSvc, emailCodeSvc, smtpSvc, cgroupRepo)
+	authSvc := service.NewAuthService(userRepo, siteRepo, sessionSvc, emailCodeSvc, smtpSvc, cgroupRepo, creditLogSvc)
 	appSettingsSvc := service.NewAppSettingsService(siteRepo, eventRepo, smtpSvc, rustfsClient)
 	imageAccessSvc := service.NewImageAccessService(cfg.GeneratedRoot, showcaseRepo, authSvc)
 	adobeClient := adobe.NewClient("clio-playground-web", "")
@@ -127,8 +129,8 @@ func NewApp(ctx context.Context) (*App, error) {
 	siteSvc := service.NewSiteService(siteRepo, cfg.AppTitle)
 	showcaseSvc := service.NewShowcaseService(showcaseRepo)
 	adminReadSvc := service.NewAdminReadService(cfg, userRepo, modelRepo, eventRepo, siteRepo, tokenRepo, cdkRepo, rustfsClient, showcaseRepo)
-	adminWriteSvc := service.NewAdminWriteService(userRepo, showcaseRepo, modelRepo, eventRepo, apiKeyRepo, tokenRepo)
-	cdkSvc := service.NewCDKService(cdkRepo, userRepo, siteRepo)
+	adminWriteSvc := service.NewAdminWriteService(userRepo, showcaseRepo, modelRepo, eventRepo, apiKeyRepo, tokenRepo, creditLogSvc)
+	cdkSvc := service.NewCDKService(cdkRepo, userRepo, siteRepo, creditLogSvc)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo)
 	tokenSvc := service.NewTokenService(tokenRepo, refreshRepo, eventRepo, siteRepo, adobeClient, chatGPTClient, runwayClient, leonardoClient, kreaClient, imagineClient, grokClient)
 	refreshSvc := service.NewRefreshProfileService(refreshRepo, tokenRepo, adobeClient)
@@ -160,6 +162,7 @@ func NewApp(ctx context.Context) (*App, error) {
 		Announcement:  handler.NewAnnouncementHandler(announcementSvc),
 		Payment:       handler.NewPaymentHandler(paymentSvc),
 		BannedWords:   handler.NewBannedWordsHandler(bannedWordRepo),
+		CreditLog:     handler.NewCreditLogHandler(creditLogSvc),
 	})
 
 	// Background self-healing sweep (quota recovery, cookie refresh, stale-pending

@@ -32,8 +32,8 @@ const gGloss = `vgl-${uid}`
     <!-- top gloss for depth -->
     <rect x="2" y="2" width="44" height="22" rx="13" :fill="`url(#${gGloss})`" />
 
-    <!-- faceted V: left arm brighter, right arm dimmer -> folded look -->
-    <path d="M12 15 H19 L24 26 L24 37 Z" fill="#ffffff" fill-opacity="0.95" />
-    <path d="M36 15 H29 L24 26 L24 37 Z" fill="#ffffff" fill-opacity="0.72" />
+    <!-- sparkle mark (AI 生成):主星芒 + 右上小星,替代原来的 V -->
+    <path d="M24 10.5 C24.7 18.2 29.8 23.3 37.5 24 C29.8 24.7 24.7 29.8 24 37.5 C23.3 29.8 18.2 24.7 10.5 24 C18.2 23.3 23.3 18.2 24 10.5 Z" fill="#ffffff" fill-opacity="0.95" />
+    <path d="M33.5 11 C33.8 13.9 34.6 14.7 37.5 15 C34.6 15.3 33.8 16.1 33.5 19 C33.2 16.1 32.4 15.3 29.5 15 C32.4 14.7 33.2 13.9 33.5 11 Z" fill="#ffffff" fill-opacity="0.7" />
   </svg>
 </template>

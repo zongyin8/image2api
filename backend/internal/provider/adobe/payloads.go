@@ -47,14 +47,29 @@ var defaultSize = map[string]map[string][2]int{
 }
 
 func ResolveModelSpec(modelID string) modelSpec {
-	switch modelID {
-	case "firefly-gpt-image", "firefly-gpt-image-2":
+	// Match on a normalized substring, not the exact id, so provider-prefixed
+	// config ids (e.g. "adobe-gpt-image-2", "adobe-flux-kontext-max") route to the
+	// same upstream as the legacy bare ids ("firefly-gpt-image-2"). This is what
+	// lets one logical model live under several configs with a <provider>-<name>
+	// naming convention (see GetGroup failover) while adobe still picks the right
+	// Firefly engine.
+	id := strings.ToLower(strings.TrimSpace(modelID))
+	switch {
+	case strings.Contains(id, "gpt-image"):
 		return modelSpec{UpstreamModelID: "gpt-image", UpstreamModelVersion: "2"}
-	case "flux-kontext-max":
+	case strings.Contains(id, "flux-kontext"):
 		return modelSpec{UpstreamModelID: "flux", UpstreamModelVersion: "fluxKontextMax"}
 	default:
 		return modelSpec{UpstreamModelID: "gemini-flash", UpstreamModelVersion: "nano-banana-3"}
 	}
+}
+
+// IsImage5 reports whether a model id targets Adobe Firefly Image 5, which uses a
+// distinct endpoint + payload. Substring match so "adobe-image-5" and the legacy
+// "firefly-image-5" both resolve here.
+func IsImage5(modelID string) bool {
+	id := strings.ToLower(strings.TrimSpace(modelID))
+	return strings.Contains(id, "image-5") || strings.Contains(id, "image5")
 }
 
 // buildImage5Payload builds the Adobe Firefly Image 5 request. It uses a distinct
@@ -168,10 +183,19 @@ func buildFluxPayloads(spec modelSpec, prompt, ratio string, blobIDs []string) [
 
 func buildDefaultPayloads(spec modelSpec, prompt, ratio, resolution string, blobIDs []string) []map[string]any {
 	size := getSize(defaultSize, resolution, ratio, "16:9")
-	// Shape mirrors a captured working firefly.adobe.com request exactly: top-level
-	// size object, modelSpecificPayload only {parameters:{addWatermark:false}},
-	// groundSearch:false, module "text2image" (even with a reference blob). NO
-	// skipCai and NO modelSpecificPayload.aspectRatio — sending those got 403.
+	// Shape mirrors a captured working firefly.adobe.com request: top-level size
+	// object, groundSearch:false, module "text2image". modelSpecificPayload carries
+	// parameters.addWatermark:false and — when a concrete ratio is requested —
+	// aspectRatio. Verified 2026-07-14 against firefly-3p: Adobe returns 200 and
+	// actually honors the ratio (9:16 → 768×1376 portrait); WITHOUT it nano-banana
+	// ignores the top-level `size` and always returns its default ~16:9 landscape.
+	// (skipCai still omitted — that one did 403.)
+	msp := map[string]any{
+		"parameters": map[string]any{"addWatermark": false},
+	}
+	if r := strings.TrimSpace(ratio); r != "" && !strings.EqualFold(r, "auto") {
+		msp["aspectRatio"] = r
+	}
 	base := map[string]any{
 		"modelId":      spec.UpstreamModelID,
 		"modelVersion": spec.UpstreamModelVersion,
@@ -185,9 +209,7 @@ func buildDefaultPayloads(spec modelSpec, prompt, ratio, resolution string, blob
 			"module":    "text2image",
 			"submodule": "ff-image-generate",
 		},
-		"modelSpecificPayload": map[string]any{
-			"parameters": map[string]any{"addWatermark": false},
-		},
+		"modelSpecificPayload": msp,
 	}
 	if len(blobIDs) == 0 {
 		base["referenceBlobs"] = []any{}

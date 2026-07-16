@@ -25,6 +25,7 @@ type AuthService struct {
 	smtp       *SMTPService
 	loginGuard *LoginGuard
 	cgroups    *repo.ConcurrencyGroupRepository
+	creditLogs *CreditLogService
 }
 
 type AuthSettings struct {
@@ -41,6 +42,7 @@ func NewAuthService(
 	codes *EmailCodeService,
 	smtp *SMTPService,
 	cgroups *repo.ConcurrencyGroupRepository,
+	creditLogs *CreditLogService,
 ) *AuthService {
 	return &AuthService{
 		users:      users,
@@ -50,6 +52,7 @@ func NewAuthService(
 		smtp:       smtp,
 		loginGuard: NewLoginGuard(codes.Redis()),
 		cgroups:    cgroups,
+		creditLogs: creditLogs,
 	}
 }
 
@@ -312,6 +315,7 @@ func (s *AuthService) Register(ctx context.Context, email, username, password, i
 	if err := s.users.Create(ctx, user); err != nil {
 		return nil, "", nil, err
 	}
+	s.grantRegisterGift(ctx, user.ID)
 	if err := s.users.TouchLogin(ctx, user.ID, ip); err != nil {
 		return nil, "", nil, err
 	}
@@ -394,6 +398,7 @@ func (s *AuthService) RegisterUsername(ctx context.Context, username, password, 
 	if err := s.users.Create(ctx, user); err != nil {
 		return nil, "", nil, err
 	}
+	s.grantRegisterGift(ctx, user.ID)
 	if err := s.users.TouchLogin(ctx, user.ID, ip); err != nil {
 		return nil, "", nil, err
 	}
@@ -558,7 +563,15 @@ func (s *AuthService) Checkin(ctx context.Context, userID string) (*repo.Checkin
 	if !credits.CheckinEnabled {
 		return nil, errors.New("签到功能未开启")
 	}
-	return s.users.DailyCheckin(ctx, userID, credits.CheckinReward)
+	res, err := s.users.DailyCheckin(ctx, userID, credits.CheckinReward)
+	if err != nil {
+		return nil, err
+	}
+	// 首次签到入账才记流水(重复签到 Already=true 不记)。
+	if res != nil && !res.Already && res.Awarded > 0 {
+		s.creditLogs.LogCredit(ctx, userID, CreditLogGift, float64(res.Awarded), res.Credits, "每日签到")
+	}
+	return res, nil
 }
 
 func (s *AuthService) InviteList(ctx context.Context, userID string) ([]repo.InviteRecord, error) {
@@ -683,10 +696,28 @@ func (s *AuthService) loadCreditSettings(ctx context.Context) (*CreditSettings, 
 	if err != nil {
 		return nil, err
 	}
+	regGiftRaw, _ := s.settings.GetValue(ctx, "credits.register_gift")
 	return &CreditSettings{
 		CheckinEnabled: parseBoolSetting(checkinEnabledRaw, true),
 		CheckinReward:  parseIntSetting(checkinRewardRaw, 3),
 		InviteEnabled:  parseBoolSetting(inviteEnabledRaw, true),
 		InviteReward:   parseIntSetting(inviteRewardRaw, 3),
+		RegisterGift:   parseIntSetting(regGiftRaw, 0),
 	}, nil
+}
+
+// grantRegisterGift 给新注册用户发放"注册赠送"积分(credits.register_gift>0 时),
+// 并记一条 gift 入账流水。失败静默,不阻断注册。
+func (s *AuthService) grantRegisterGift(ctx context.Context, userID string) {
+	cs, err := s.loadCreditSettings(ctx)
+	if err != nil || cs.RegisterGift <= 0 {
+		return
+	}
+	updated, err := s.users.AdjustCredits(ctx, userID, float64(cs.RegisterGift))
+	if err != nil {
+		return
+	}
+	if s.creditLogs != nil {
+		s.creditLogs.LogCredit(ctx, userID, CreditLogGift, float64(cs.RegisterGift), updated.Credits, "注册赠送")
+	}
 }

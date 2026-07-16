@@ -34,6 +34,7 @@ func (s *APIKeyService) Current(ctx context.Context, userID string) (map[string]
 			"id":           key.ID,
 			"name":         key.Name,
 			"key_preview":  key.KeyPreview,
+			"plain":        key.RawKey,
 			"created_at":   key.CreatedAt,
 			"last_used_at": key.LastUsedAt,
 		},
@@ -51,6 +52,7 @@ func (s *APIKeyService) Mint(ctx context.Context, userID string) (map[string]any
 		Name:       "default",
 		KeyPreview: previewAPIKey(plain),
 		KeyHash:    hashAPIKey(plain),
+		RawKey:     plain,
 		CreatedAt:  time.Now(),
 	}
 	if err := s.keys.ReplaceForUser(ctx, userID, key); err != nil {
@@ -82,6 +84,7 @@ func (s *APIKeyService) MintNamed(ctx context.Context, userID, name string, repl
 		Name:       name,
 		KeyPreview: previewAPIKey(plain),
 		KeyHash:    hashAPIKey(plain),
+		RawKey:     plain,
 		CreatedAt:  time.Now(),
 	}
 	if replace {

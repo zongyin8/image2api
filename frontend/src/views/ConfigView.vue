@@ -117,7 +117,7 @@ const smtp = reactive({ host: '', port: 587, username: '', password: '', from_ad
 const smtpBusy = ref(false); const smtpSaved = ref(false)
 
 // ---- rewards ----
-const credits = reactive({ checkin_enabled: true, checkin_reward: 3, invite_enabled: true, invite_reward: 3, cdk_redeem_enabled: true })
+const credits = reactive({ checkin_enabled: true, checkin_reward: 3, invite_enabled: true, invite_reward: 3, register_gift: 0, cdk_redeem_enabled: true })
 const credBusy = ref(false); const credSaved = ref(false)
 
 // ---- deai (去AI特征 附加价格) ----
@@ -282,6 +282,7 @@ async function saveCredits() {
     checkin_reward: Number(credits.checkin_reward) || 0,
     invite_enabled: credits.invite_enabled,
     invite_reward: Number(credits.invite_reward) || 0,
+    register_gift: Number(credits.register_gift) || 0,
     cdk_redeem_enabled: credits.cdk_redeem_enabled,
   }))
   credBusy.value = false
@@ -472,6 +473,10 @@ onMounted(() => { loadSite(); loadReg(); loadSmtp(); loadCredits(); loadAnnounce
         <label class="row" :class="!credits.invite_enabled && 'opacity-50'">
           <span><span class="lbl">邀请奖励</span><span class="hint">被邀请好友首次生图后,邀请人获得的积分。</span></span>
           <input type="number" min="0" v-model.number="credits.invite_reward" :disabled="!credits.invite_enabled" class="num" />
+        </label>
+        <label class="row">
+          <span><span class="lbl">注册赠送</span><span class="hint">新用户注册成功即赠送的积分,设 0 表示不赠送。</span></span>
+          <input type="number" min="0" v-model.number="credits.register_gift" class="num" />
         </label>
         <label class="row">
           <span><span class="lbl">开启兑换码</span><span class="hint">关闭后用户无法兑换兑换码,前台也不再显示兑换入口。</span></span>

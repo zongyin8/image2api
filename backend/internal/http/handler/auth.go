@@ -31,12 +31,12 @@ func NewAuthHandler(cfg *config.Config, auth *service.AuthService, limiter *serv
 
 // Captcha 生成图形验证码,返回 {captcha_id, image(base64 DataURL)}。
 func (h *AuthHandler) Captcha(c *gin.Context) {
-	id, img, err := h.captcha.Generate(c.Request.Context())
+	id, question, err := h.captcha.Generate(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"detail": "验证码生成失败"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"captcha_id": id, "image": img})
+	c.JSON(http.StatusOK, gin.H{"captcha_id": id, "question": question})
 }
 
 // RegisterCaptcha 图形验证码注册:{username, password, captcha_id, captcha_answer}。

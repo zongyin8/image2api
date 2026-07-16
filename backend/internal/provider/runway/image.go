@@ -124,7 +124,7 @@ func (c *Client) createImageTask(ctx context.Context, client tlsclient.HttpClien
 		"exploreMode":    false,
 		"creationSource": "tool-mode",
 	}
-	if modelID == "nano-banana-2" {
+	if strings.Contains(strings.ToLower(modelID), "nano-banana-2") {
 		taskType = "gemini_3_1_flash_image"
 		opts["name"] = "Nano Banana 2 - " + prompt
 		opts["model"] = "gemini-3.1-flash-image-preview"

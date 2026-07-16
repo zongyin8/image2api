@@ -396,7 +396,74 @@ func (s *V1Service) prepareAdminTestImage(ctx context.Context, principal *APIPri
 	return s.prepareImageExecution(ctx, principal, in, "admin", false)
 }
 
+// isFailoverEligible reports whether a failed generation attempt should fall
+// over to the next backend in its alias group. ONLY "backend unavailable" errors
+// qualify: an empty/exhausted account pool, an invalid/expired provider token,
+// provider quota exhaustion, or a temporary upstream outage. Everything else —
+// banned prompt, insufficient credits, unknown model, per-user concurrency full,
+// and the generic ErrProviderExecution (which can be a content rejection) — would
+// fail identically on every backend, so retrying just burns quota. This is the
+// "只在不可用类降级" contract.
+func isFailoverEligible(err error) bool {
+	switch {
+	case errors.Is(err, ErrNoProviderAccount),
+		errors.Is(err, ErrProviderAuth),
+		errors.Is(err, ErrProviderQuota),
+		errors.Is(err, ErrProviderTemporary):
+		return true
+	default:
+		return false
+	}
+}
+
+// runWithFailover tries each backend config in the (already weight-ordered) group,
+// returning the first success. It advances to the next config ONLY when the
+// current attempt failed with a failover-eligible (backend-unavailable) error AND
+// another config remains; otherwise it returns that attempt's result/error
+// verbatim. `attempt` performs one full generation against `cfg` — charging and
+// refunding within itself, so a failed attempt nets zero cost and only the
+// backend that actually produces the image is charged (at its own price).
+func runWithFailover(group []model.ModelConfig, attempt func(cfg *model.ModelConfig) (map[string]any, error)) (map[string]any, error) {
+	var lastErr error
+	for i := range group {
+		cfg := group[i]
+		res, err := attempt(&cfg)
+		if err == nil {
+			return res, nil
+		}
+		lastErr = err
+		if i == len(group)-1 || !isFailoverEligible(err) {
+			return nil, err
+		}
+	}
+	return nil, lastErr
+}
+
+// prepareImageExecution resolves the alias group for the requested model and runs
+// the generation with weight-priority + failover across the group's backends.
+// A missing/single-backend lookup collapses to exactly one attempt through the
+// classic resolver (forced=nil), so error semantics for unknown/disabled models
+// stay identical to the pre-failover behavior.
 func (s *V1Service) prepareImageExecution(ctx context.Context, principal *APIPrincipal, in V1ImageRequest, source string, charge bool) (map[string]any, error) {
+	// Admin model-tests pin a specific backend (and often a specific AccountID), so
+	// they must NOT fail over to a sibling provider — run the classic single shot.
+	if source == "admin" {
+		return s.prepareImageExecutionOnce(ctx, principal, in, source, charge, nil)
+	}
+	group, gerr := s.models.GetGroup(ctx, strings.TrimSpace(in.Model))
+	if gerr != nil || len(group) <= 1 {
+		var forced *model.ModelConfig
+		if len(group) == 1 {
+			forced = &group[0]
+		}
+		return s.prepareImageExecutionOnce(ctx, principal, in, source, charge, forced)
+	}
+	return runWithFailover(group, func(cfg *model.ModelConfig) (map[string]any, error) {
+		return s.prepareImageExecutionOnce(ctx, principal, in, source, charge, cfg)
+	})
+}
+
+func (s *V1Service) prepareImageExecutionOnce(ctx context.Context, principal *APIPrincipal, in V1ImageRequest, source string, charge bool, forced *model.ModelConfig) (map[string]any, error) {
 	// Detach the whole execution from the request lifecycle. The frontend tracks
 	// progress by polling /jobs/mine, so a client disconnect — or an nginx/CDN
 	// gateway timeout on the slow synchronous response — must NOT cancel an
@@ -437,7 +504,7 @@ func (s *V1Service) prepareImageExecution(ctx context.Context, principal *APIPri
 		defer s.userRelease(ctx, principal.User.ID, slot)
 	}
 
-	modelItem, resolution, aspectRatio, price, err := s.prepareImage(ctx, principal, in, charge)
+	modelItem, resolution, aspectRatio, price, err := s.prepareImage(ctx, principal, in, charge, forced)
 	if err != nil {
 		s.logRejectedEvent(ctx, "image", in.Model, principal, in.Prompt, source, err.Error())
 		return nil, err
@@ -468,7 +535,7 @@ func (s *V1Service) prepareImageExecution(ctx context.Context, principal *APIPri
 	startedAt := time.Now()
 
 	var imageBytes []byte
-	switch s.effectiveProvider(genCtx, modelItem) {
+	switch s.effectiveImageProvider(genCtx, modelItem, resolution) {
 	case "adobe":
 		b, execErr := s.generateAdobeImage(genCtx, eventID, modelItem, in, aspectRatio, resolution)
 		if execErr != nil {
@@ -1061,18 +1128,24 @@ func (s *V1Service) hasActiveProviderToken(ctx context.Context, provider, kind s
 	return false, nil
 }
 
-func (s *V1Service) prepareImage(ctx context.Context, principal *APIPrincipal, in V1ImageRequest, charge bool) (*model.ModelConfig, string, string, float64, error) {
+func (s *V1Service) prepareImage(ctx context.Context, principal *APIPrincipal, in V1ImageRequest, charge bool, forced *model.ModelConfig) (*model.ModelConfig, string, string, float64, error) {
 	modelID := strings.TrimSpace(in.Model)
 	prompt := strings.TrimSpace(in.Prompt)
 	if modelID == "" || prompt == "" {
 		return nil, "", "", 0, errors.New("model and prompt required")
 	}
-	modelItem, err := s.models.Get(ctx, modelID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, "", "", 0, ErrUnknownModel
+	// `forced` is set by the failover scheduler to pin this attempt to a specific
+	// backend config in the alias group; otherwise resolve by name as usual.
+	modelItem := forced
+	if modelItem == nil {
+		mi, err := s.models.Get(ctx, modelID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, "", "", 0, ErrUnknownModel
+			}
+			return nil, "", "", 0, err
 		}
-		return nil, "", "", 0, err
+		modelItem = mi
 	}
 	if !modelItem.Enabled || modelItem.Type != "image" {
 		return nil, "", "", 0, ErrUnknownModel
@@ -1822,6 +1895,31 @@ func (s *V1Service) effectiveProvider(ctx context.Context, modelItem *model.Mode
 		}
 	}
 	return modelItem.Provider
+}
+
+// effectiveImageProvider adds resolution-aware, prefer-local routing on top of
+// effectiveProvider for image models a custom upstream ALSO serves:
+//   - 2K/4K  → always the custom upstream (local free pools only do 1K).
+//   - 1K     → prefer the model's native local pool (chatgpt/adobe) when it has an
+//     available account; fall back to the custom upstream when the local pool is empty.
+//
+// Models a custom account does NOT serve are unaffected (returns native as-is).
+func (s *V1Service) effectiveImageProvider(ctx context.Context, modelItem *model.ModelConfig, resolution string) string {
+	base := s.effectiveProvider(ctx, modelItem)
+	if base != "custom" {
+		return base
+	}
+	switch strings.ToUpper(strings.TrimSpace(resolution)) {
+	case "2K", "4K":
+		return "custom"
+	}
+	native := modelItem.Provider
+	if native != "" && native != "custom" {
+		if ok, err := s.hasActiveProviderToken(ctx, native, "image"); err == nil && ok {
+			return native
+		}
+	}
+	return "custom"
 }
 
 // generateCustomImage forwards an image generation to an OpenAI-compatible

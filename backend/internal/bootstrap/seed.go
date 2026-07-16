@@ -34,6 +34,7 @@ func seedDefaults(ctx context.Context, db *gorm.DB) error {
 		{Key: "credits.checkin_reward", Value: "3"},
 		{Key: "credits.invite_enabled", Value: "true"},
 		{Key: "credits.invite_reward", Value: "3"},
+		{Key: "credits.register_gift", Value: "0"},
 		{Key: "credits.cdk_redeem_enabled", Value: "true"},
 		{Key: "pay.enabled", Value: "false"},
 		{Key: "pay.api_base", Value: "https://pay.v8jisu.cn/api/pay"},

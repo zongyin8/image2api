@@ -18,6 +18,55 @@ const search = ref('')
 const page = ref(1)
 const pageSize = 20
 
+// 顶部标签页:充值订单 / 入账记录(积分流水,仅入账)。
+const tab = ref('orders')  // 'orders' | 'credits'
+
+// —— 入账记录(GET /admin/api/credit-logs)——
+const clItems = ref([])
+const clTotal = ref(0)
+const clLoading = ref(false)
+const clPage = ref(1)
+const clPageSize = 20
+const CREDIT_TYPE = {
+  recharge: '充值',
+  redeem: '兑换',
+  gift: '赠送',
+  admin: '调整',
+  order: '支付到账',
+}
+const creditPill = (t) => ({
+  recharge: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  order: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  redeem: 'bg-violet-50 text-violet-700 ring-violet-200',
+  gift: 'bg-amber-50 text-amber-700 ring-amber-200',
+  admin: 'bg-sky-50 text-sky-700 ring-sky-200',
+}[t] || 'bg-slate-100 text-slate-500 ring-slate-200')
+
+async function loadCredits() {
+  clLoading.value = true
+  const qs = new URLSearchParams({ page: String(clPage.value), page_size: String(clPageSize) })
+  const r = await api('/credit-logs?' + qs.toString())
+  clLoading.value = false
+  if (r.ok) {
+    clItems.value = r.data?.data || []
+    clTotal.value = Number(r.data?.total ?? clItems.value.length)
+  }
+}
+const clTotalPages = computed(() => Math.max(1, Math.ceil(clTotal.value / clPageSize)))
+const clPageStart = computed(() => clTotal.value === 0 ? 0 : (clPage.value - 1) * clPageSize + 1)
+const clPageEnd = computed(() => Math.min(clTotal.value, clPage.value * clPageSize))
+const clPageNumbers = computed(() => pageList(clTotalPages.value, clPage.value))
+function clGoPage(n) {
+  const t = Math.max(1, Math.min(clTotalPages.value, n))
+  if (t === clPage.value) return
+  clPage.value = t; loadCredits()
+}
+function switchTab(v) {
+  if (tab.value === v) return
+  tab.value = v
+  if (v === 'credits' && !clItems.value.length) loadCredits()
+}
+
 const STATUS = { pending: '待支付', paid: '已支付', cancelled: '已取消' }
 const METHOD = { wxpay: '微信', alipay: '支付宝' }
 const statusPill = (s) => ({
@@ -55,8 +104,8 @@ const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize))
 const pageStart = computed(() => total.value === 0 ? 0 : (page.value - 1) * pageSize + 1)
 const pageEnd = computed(() => Math.min(total.value, page.value * pageSize))
 function setStatus(v) { status.value = v; page.value = 1; load() }
-const pageNumbers = computed(() => {
-  const n = totalPages.value, cur = page.value
+// Shared numbered-pagination builder (1 … n with the current window expanded).
+function pageList(n, cur) {
   if (n <= 7) return Array.from({ length: n }, (_, i) => i + 1)
   const want = new Set([1, n, cur - 1, cur, cur + 1])
   if (cur <= 3) { want.add(2); want.add(3); want.add(4) }
@@ -68,7 +117,8 @@ const pageNumbers = computed(() => {
     out.push(list[i])
   }
   return out
-})
+}
+const pageNumbers = computed(() => pageList(totalPages.value, page.value))
 function goPage(n) {
   const t = Math.max(1, Math.min(totalPages.value, n))
   if (t === page.value) return
@@ -94,11 +144,26 @@ async function cont(o) {
     <div class="flex items-end justify-between flex-wrap gap-3">
       <div>
         <h1 class="text-2xl font-semibold tracking-tight text-slate-900">订单</h1>
-        <p class="text-sm text-slate-500 mt-1">{{ total }} 笔充值订单 · 未支付可继续支付</p>
+        <p class="text-sm text-slate-500 mt-1">
+          <template v-if="tab === 'orders'">{{ total }} 笔充值订单 · 未支付可继续支付</template>
+          <template v-else>{{ clTotal }} 条积分入账记录 · 出图扣费不在此显示</template>
+        </p>
       </div>
       <button @click="router.push('/settings')" class="btn-primary"><Icon name="spark" class="w-4 h-4" /> 去充值</button>
     </div>
 
+    <!-- Tab switcher: 充值订单 / 入账记录 -->
+    <div class="flex items-center gap-1.5">
+      <button @click="switchTab('orders')"
+              class="text-xs rounded-lg px-3 py-1.5 transition-colors"
+              :class="tab === 'orders' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'">充值订单</button>
+      <button @click="switchTab('credits')"
+              class="text-xs rounded-lg px-3 py-1.5 transition-colors"
+              :class="tab === 'credits' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'">入账记录</button>
+    </div>
+
+    <!-- ===== 充值订单 ===== -->
+    <template v-if="tab === 'orders'">
     <!-- Filter bar -->
     <div class="card p-3 flex items-center gap-3 flex-wrap">
       <div class="flex items-center gap-1.5">
@@ -169,6 +234,57 @@ async function cont(o) {
         </div>
       </div>
     </div>
+    </template>
+
+    <!-- ===== 入账记录(积分流水,仅入账)===== -->
+    <template v-else>
+      <div class="card p-3 flex items-center gap-3 flex-wrap">
+        <p class="text-xs text-slate-500 flex-1">充值 / 兑换码 / 赠送 / 管理员调整 / 支付到账 —— 每次积分增加都会记录。</p>
+        <button @click="loadCredits" class="btn-soft"><Icon name="refresh" class="w-3.5 h-3.5" /> 刷新</button>
+      </div>
+
+      <div v-if="clLoading && !clItems.length" class="card text-center text-sm text-slate-400 py-24">加载中…</div>
+      <div v-else-if="!clTotal" class="card flex flex-col items-center gap-3 text-slate-400 py-24">
+        <span class="w-14 h-14 rounded-2xl bg-slate-100 grid place-items-center"><Icon name="log" class="w-6 h-6" /></span>
+        <span class="text-sm">还没有入账记录</span>
+      </div>
+
+      <div v-else class="card overflow-hidden !p-0">
+        <table class="w-full text-sm log-table">
+          <thead>
+            <tr class="text-[10px] uppercase tracking-[0.18em] text-slate-400 border-b border-slate-200">
+              <th class="text-left px-4 py-3 font-medium">类型</th>
+              <th class="text-left px-3 py-3 font-medium">说明</th>
+              <th class="text-right px-3 py-3 font-medium">入账积分</th>
+              <th class="text-right px-3 py-3 font-medium">到账后余额</th>
+              <th class="text-right px-4 py-3 font-medium">时间</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(cl, i) in clItems" :key="i" class="log-row">
+              <td class="px-4 py-3 align-middle">
+                <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 whitespace-nowrap" :class="creditPill(cl.type)">{{ CREDIT_TYPE[cl.type] || cl.type }}</span>
+              </td>
+              <td class="px-3 py-3 align-middle text-xs text-slate-600">{{ cl.title || '—' }}</td>
+              <td class="px-3 py-3 align-middle text-right tabular-nums text-emerald-600 font-medium">+{{ cl.amount }}</td>
+              <td class="px-3 py-3 align-middle text-right tabular-nums text-slate-700">{{ cl.balance_after }}</td>
+              <td class="px-4 py-3 align-middle text-right text-xs text-slate-500 whitespace-nowrap">{{ fmt(cl.created_at) }}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div v-if="clTotal && clTotalPages > 1"
+             class="flex items-center justify-between gap-3 border-t border-slate-200 px-5 py-3 text-xs text-slate-500">
+          <div><span class="tabular-nums text-slate-700">{{ clPageStart }}–{{ clPageEnd }}</span><span class="ml-1">/ {{ clTotal }} 条</span></div>
+          <div class="flex items-center gap-1">
+            <template v-for="(n, i) in clPageNumbers" :key="i">
+              <span v-if="n === null" class="px-1 text-slate-300">…</span>
+              <button v-else @click="clGoPage(n)" class="pg" :class="clPage === n && 'pg-on'">{{ n }}</button>
+            </template>
+          </div>
+        </div>
+      </div>
+    </template>
   </section>
 </template>
 

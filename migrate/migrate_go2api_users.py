@@ -114,7 +114,8 @@ for r in rows:
     kh = (d.get("key_hash") or "").strip()
     if kh:
         raw = (d.get("raw_key") or "").strip()
-        preview = ("…" + raw[-4:]) if len(raw) >= 4 else "…????"
+        # 掩码:前8 + 12圆点 + 后6,如 sk-atp3t••••••••••••-XCDpT(前端直接展示 key_preview)
+        preview = (raw[:8] + "•" * 12 + raw[-6:]) if len(raw) >= 14 else raw
         keys_sql.append(
             "INSERT INTO api_keys (id,user_id,name,key_preview,key_hash,created_at,last_used_at) VALUES ("
             f"{sqlstr('k-' + src_id)},{sqlstr(uid)},'default',{sqlstr(preview)},"
