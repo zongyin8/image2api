@@ -39,7 +39,12 @@ var (
 	// async image pipeline (image is delivered later via conversation polling
 	// rather than inline in the SSE stream). Their presence means "generating —
 	// keep polling", NOT failure.
-	asyncMarkers = []string{"image_gen_async", "image_gen_task_id", "trigger_async_ux"}
+	asyncMarkers = []string{
+		"image_gen_async",
+		"image_gen_multi_stream",
+		"image_gen_task_id",
+		"trigger_async_ux",
+	}
 
 	// contentPolicyMarkers are stable substrings of ChatGPT's content-audit
 	// refusal message. When one appears in an assistant turn the prompt was
