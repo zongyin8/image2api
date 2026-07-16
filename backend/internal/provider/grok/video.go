@@ -54,10 +54,24 @@ func (c *Client) GenerateVideo(ctx context.Context, token, prompt, aspectRatio, 
 		seconds = 10
 	}
 
-	client, err := c.newTLSClient()
+	// Only the conversations/new submit egresses via the proxy; reference-frame
+	// upload and the mp4 download run on the local IP.
+	submitClient, err := c.newTLSClient()
 	if err != nil {
 		return nil, nil, err
 	}
+	directClient, err := c.newDirectTLSClient()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Self-heal the x-statsig-id anti-bot challenge for THIS session before the
+	// gated submit. Without it the header falls back to the static defaults,
+	// which go stale on a new grok web build and make conversations/new answer
+	// 403 (anti-bot). Fetch on the local IP (the proxy is rotating, so pinning
+	// the seed to a proxy egress IP is pointless). Failure is non-fatal
+	// (statsigID then uses defaults).
+	c.ensureChallenge(ctx, directClient, token)
 
 	// Image-to-video: upload each reference frame and collect its asset URL.
 	var imageRefs []string
@@ -65,7 +79,7 @@ func (c *Client) GenerateVideo(ctx context.Context, token, prompt, aspectRatio, 
 		if len(f) == 0 {
 			continue
 		}
-		url, upErr := c.uploadImage(ctx, client, token, f)
+		url, upErr := c.uploadImage(ctx, directClient, token, f)
 		if upErr != nil {
 			return nil, nil, upErr
 		}
@@ -74,9 +88,9 @@ func (c *Client) GenerateVideo(ctx context.Context, token, prompt, aspectRatio, 
 
 	// grok occasionally accepts the conversation (HTTP 200) but closes the stream
 	// after only the conversation object — no progress events, no videoUrl. This
-	// is transient, so retry the whole create-post + stream a few times before
-	// giving up. Real out-of-credits / auth errors are returned immediately.
-	const maxAttempts = 5
+	// is transient and surfaces as ErrTemporaryUpstream so the caller fails over
+	// to the NEXT account (换号重试) instead of retrying this one.
+	const maxAttempts = 1
 	var (
 		postID   string
 		artifact string
@@ -87,7 +101,7 @@ func (c *Client) GenerateVideo(ctx context.Context, token, prompt, aspectRatio, 
 		if ctx.Err() != nil {
 			return nil, nil, ctx.Err()
 		}
-		pid, cpErr := c.createPost(ctx, client, token, prompt)
+		pid, cpErr := c.createPost(ctx, submitClient, token, prompt)
 		if cpErr != nil {
 			lastErr = cpErr
 			continue
@@ -116,7 +130,7 @@ func (c *Client) GenerateVideo(ctx context.Context, token, prompt, aspectRatio, 
 			},
 		}
 
-		body, psErr := c.postStream(ctx, client, token, "/rest/app-chat/conversations/new", payload)
+		body, psErr := c.postStream(ctx, submitClient, token, "/rest/app-chat/conversations/new", payload)
 		if psErr != nil {
 			// Transient HTTP/2 stream resets etc. — retry.
 			lastErr = psErr
@@ -169,7 +183,7 @@ func (c *Client) GenerateVideo(ctx context.Context, token, prompt, aspectRatio, 
 	if !downloadResult {
 		return nil, meta, nil
 	}
-	data, err := c.download(ctx, client, token, fullURL)
+	data, err := c.download(ctx, directClient, token, fullURL)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -342,7 +356,8 @@ func (c *Client) OpenAsset(ctx context.Context, token, url string) (io.ReadClose
 	if token == "" {
 		return nil, "", ErrAuth
 	}
-	client, err := c.newTLSClient()
+	// Asset streaming is pure bandwidth (no anti-bot) — egress on the local IP.
+	client, err := c.newDirectTLSClient()
 	if err != nil {
 		return nil, "", err
 	}
@@ -433,7 +448,9 @@ func mapStatus(path string, status int, raw []byte) error {
 	case status == 403 && isBotChallenge(string(raw)):
 		// grok bot-detection or a Cloudflare challenge page ("Just a moment…"),
 		// NOT a dead token — transient, so a good account isn't killed by an
-		// IP/anti-bot hiccup.
+		// IP/anti-bot hiccup. A statsig anti-bot rejection means the recipe likely
+		// went stale on a reship; kick the headless refresher to re-capture.
+		TriggerStatsigRefresh()
 		return fmt.Errorf("%w: %s 403 %s", ErrTemporaryUpstream, path, clip(raw, 160))
 	case status == 401 || status == 403:
 		return fmt.Errorf("%w: %s %d %s", ErrAuth, path, status, clip(raw, 160))

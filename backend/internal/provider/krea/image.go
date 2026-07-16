@@ -22,7 +22,7 @@ const (
 // ensureProject returns a flux project id for the account: the first existing
 // project, or a freshly created one. Generation requires a project.
 func (c *Client) ensureProject(ctx context.Context, cookie string) (string, error) {
-	body, status, err := c.apiGet(ctx, cookie, "/api/flux-projects")
+	body, status, err := c.apiGetP(ctx, cookie, "/api/flux-projects", false)
 	if err != nil {
 		return "", fmt.Errorf("%w: list projects: %s", ErrTemporaryUpstream, err.Error())
 	}
@@ -67,7 +67,7 @@ func (c *Client) uploadImage(ctx context.Context, cookie string, img []byte) (st
 		return "", err
 	}
 	_ = w.Close()
-	body, status, err := c.apiPost(ctx, cookie, "/api/upload?", w.FormDataContentType(), buf.Bytes())
+	body, status, err := c.apiPostP(ctx, cookie, "/api/upload?", w.FormDataContentType(), buf.Bytes(), false)
 	if err != nil {
 		return "", fmt.Errorf("%w: upload: %s", ErrTemporaryUpstream, err.Error())
 	}
@@ -89,7 +89,7 @@ func (c *Client) uploadImage(ctx context.Context, cookie string, img []byte) (st
 // GenerateImage runs the full Krea image pipeline: ensure a project, (for i2i)
 // upload reference images, submit the job, poll until done, then resolve and
 // download the produced image. 402 INSUFFICIENT_BALANCE → ErrQuotaExhausted.
-func (c *Client) GenerateImage(ctx context.Context, cookie, prompt string, width, height int, refImages [][]byte) ([]byte, map[string]any, error) {
+func (c *Client) GenerateImage(ctx context.Context, cookie, prompt string, width, height int, refImages [][]byte, downloadResult bool) ([]byte, map[string]any, error) {
 	// Ensure the daily free balance is granted (load /app) before generating, so a
 	// not-yet-activated account doesn't 402 INSUFFICIENT_BALANCE. Lock-guarded and
 	// once-per-daily-reset — concurrent gens wait for the first activation, already
@@ -169,11 +169,15 @@ func (c *Client) GenerateImage(ctx context.Context, cookie, prompt string, width
 	if err != nil {
 		return nil, nil, err
 	}
+	meta := map[string]any{"job_id": jobID, "image_url": imageURL, "project": projectID}
+	if !downloadResult {
+		return nil, meta, nil
+	}
 	data, err := c.download(ctx, imageURL)
 	if err != nil {
 		return nil, nil, err
 	}
-	return data, map[string]any{"job_id": jobID, "image_url": imageURL, "project": projectID}, nil
+	return data, meta, nil
 }
 
 // pollImage polls job-status until the job leaves the queue, then matches the
@@ -181,10 +185,15 @@ func (c *Client) GenerateImage(ctx context.Context, cookie, prompt string, width
 func (c *Client) pollImage(ctx context.Context, cookie, jobID string) (string, error) {
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
+	// Poll for the full generation budget (caller's genCtx), leaving headroom for
+	// the download, instead of a shorter hardcoded cap that killed slow jobs early.
 	deadline := time.Now().Add(4 * time.Minute)
+	if dl, ok := ctx.Deadline(); ok {
+		deadline = dl.Add(-60 * time.Second)
+	}
 
 	for {
-		body, status, err := c.apiGet(ctx, cookie, "/api/job-status?id="+jobID)
+		body, status, err := c.apiGetP(ctx, cookie, "/api/job-status?id="+jobID, false)
 		if err == nil && status == 200 {
 			var js struct {
 				Status string `json:"status"`
@@ -215,7 +224,7 @@ func (c *Client) pollImage(ctx context.Context, cookie, jobID string) (string, e
 
 // assetForJob finds the generated asset produced by a job and returns its URL.
 func (c *Client) assetForJob(ctx context.Context, cookie, jobID string) (string, error) {
-	body, status, err := c.apiGet(ctx, cookie, "/api/assets?filter=generated&offset=0")
+	body, status, err := c.apiGetP(ctx, cookie, "/api/assets?filter=generated&offset=0", false)
 	if err != nil || status != 200 {
 		return "", fmt.Errorf("assets http %d", status)
 	}
@@ -237,7 +246,7 @@ func (c *Client) assetForJob(ctx context.Context, cookie, jobID string) (string,
 }
 
 func (c *Client) download(ctx context.Context, url string) ([]byte, error) {
-	client, err := c.newTLSClient()
+	client, err := c.newDirectTLSClient()
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +277,13 @@ func (c *Client) download(ctx context.Context, url string) ([]byte, error) {
 
 // apiPost issues a POST with a raw body + content-type, carrying the cookie.
 func (c *Client) apiPost(ctx context.Context, cookie, path, contentType string, body []byte) ([]byte, int, error) {
-	client, err := c.newTLSClient()
+	return c.apiPostP(ctx, cookie, path, contentType, body, true)
+}
+
+// apiPostP picks the egress: reference-image upload runs direct (local IP), the
+// generate submit uses the proxy.
+func (c *Client) apiPostP(ctx context.Context, cookie, path, contentType string, body []byte, useProxy bool) ([]byte, int, error) {
+	client, err := c.newTLSClientP(useProxy)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -303,6 +318,7 @@ func (c *Client) apiPost(ctx context.Context, cookie, path, contentType string, 
 }
 
 func (c *Client) apiPostJSON(ctx context.Context, cookie, path string, payload any) ([]byte, int, error) {
+	// project bootstrap runs on the local IP; only the generate submit uses the proxy.
 	b, _ := json.Marshal(payload)
-	return c.apiPost(ctx, cookie, path, "application/json", b)
+	return c.apiPostP(ctx, cookie, path, "application/json", b, false)
 }

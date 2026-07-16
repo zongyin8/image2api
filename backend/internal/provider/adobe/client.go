@@ -74,7 +74,7 @@ func (c *Client) SetProxy(proxy string) {
 }
 
 func (c *Client) ExchangeCookie(ctx context.Context, cookie string) (*CookieExchangeResult, error) {
-	sess, err := c.newTLSClient()
+	sess, err := c.newDirectTLSClient()
 	if err != nil {
 		return nil, err
 	}
@@ -91,6 +91,7 @@ const uploadMaxRetries = 5
 // its original (non-temporary) classification so the account is not penalized
 // for a network blip.
 func (c *Client) UploadImage(ctx context.Context, token string, content []byte, contentType, engine string) (string, error) {
+	// Reference-image upload runs on the local IP (not the proxy).
 	body, err, retryable := c.uploadImageOnce(ctx, token, content, contentType, engine)
 	for attempt := 0; err != nil && retryable && attempt < uploadMaxRetries && ctx.Err() == nil; attempt++ {
 		body, err, retryable = c.uploadImageOnce(ctx, token, content, contentType, engine)
@@ -120,7 +121,7 @@ func (c *Client) UploadImage(ctx context.Context, token string, content []byte, 
 // body plus whether a failure is retryable (transport error / 429/451/5xx).
 // Auth failures (401/403) and other non-200s are not retryable.
 func (c *Client) uploadImageOnce(ctx context.Context, token string, content []byte, contentType, engine string) ([]byte, error, bool) {
-	sess, err := c.newTLSClient()
+	sess, err := c.newDirectTLSClient()
 	if err != nil {
 		return nil, err, false
 	}
@@ -173,8 +174,14 @@ func (c *Client) uploadImageOnce(ctx context.Context, token string, content []by
 	return body, nil, true
 }
 
-func (c *Client) GenerateImage(ctx context.Context, token, modelID, prompt, aspectRatio, resolution string, blobIDs []string) ([]byte, map[string]any, error) {
-	sess, err := c.newTLSClient()
+func (c *Client) GenerateImage(ctx context.Context, token, modelID, prompt, aspectRatio, resolution string, blobIDs []string, downloadResult bool) ([]byte, map[string]any, error) {
+	// Only the generate submit goes through the proxy; polling + download run on
+	// the local IP.
+	submitSess, err := c.newTLSClient()
+	if err != nil {
+		return nil, nil, err
+	}
+	pollSess, err := c.newDirectTLSClient()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -192,9 +199,9 @@ func (c *Client) GenerateImage(ctx context.Context, token, modelID, prompt, aspe
 		candidates = BuildImagePayloadCandidates(modelID, prompt, aspectRatio, resolution, blobIDs)
 	}
 	for _, payload := range candidates {
-		respBody, pollURL, err := c.submitImage(ctx, sess, token, prompt, endpoint, payload)
+		respBody, pollURL, err := c.submitImage(ctx, submitSess, token, prompt, endpoint, payload)
 		if err == nil {
-			meta, data, pollErr := c.pollImage(ctx, sess, token, pollURL)
+			meta, data, pollErr := c.pollImage(ctx, pollSess, token, pollURL, downloadResult)
 			if pollErr != nil {
 				return nil, nil, pollErr
 			}
@@ -227,7 +234,12 @@ func (c *Client) GenerateImage(ctx context.Context, token, modelID, prompt, aspe
 // in meta["video_url"] — used by the async /v1/videos job, which proxies that URL
 // on /content instead of persisting the file.
 func (c *Client) GenerateVideo(ctx context.Context, token, engine, prompt, aspectRatio string, durationSeconds int, resolution, referenceMode, upstreamModel string, blobIDs []string, downloadResult bool) ([]byte, map[string]any, error) {
-	sess, err := c.newTLSClient()
+	// Only the submit goes through the proxy; polling + download run on the local IP.
+	submitSess, err := c.newTLSClient()
+	if err != nil {
+		return nil, nil, err
+	}
+	pollSess, err := c.newDirectTLSClient()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -237,12 +249,12 @@ func (c *Client) GenerateVideo(ctx context.Context, token, engine, prompt, aspec
 	if engine == "firefly-video" {
 		endpoint = fireflyVideoSubmitURL
 	}
-	respBody, pollURL, err := c.submitVideo(ctx, sess, token, endpoint, payload)
+	respBody, pollURL, err := c.submitVideo(ctx, submitSess, token, endpoint, payload)
 	if err != nil {
 		return nil, nil, err
 	}
 	_ = respBody
-	meta, data, pollErr := c.pollVideo(ctx, sess, token, pollURL, downloadResult)
+	meta, data, pollErr := c.pollVideo(ctx, pollSess, token, pollURL, downloadResult)
 	if pollErr != nil {
 		return nil, nil, pollErr
 	}
@@ -254,7 +266,7 @@ func (c *Client) FetchAccountProfile(ctx context.Context, token string) (map[str
 	if token == "" {
 		return map[string]any{}, nil
 	}
-	sess, err := c.newTLSClient()
+	sess, err := c.newDirectTLSClient()
 	if err != nil {
 		return nil, err
 	}
@@ -339,7 +351,7 @@ func (c *Client) FetchCreditsBalance(ctx context.Context, token string) (map[str
 		}, nil
 	}
 
-	sess, err := c.newTLSClient()
+	sess, err := c.newDirectTLSClient()
 	if err != nil {
 		return nil, err
 	}
@@ -519,11 +531,10 @@ func (c *Client) submitImage(ctx context.Context, sess *tlsSession, token, promp
 	return respBody, "", errors.New("submit ok but no poll url")
 }
 
-func (c *Client) pollImage(ctx context.Context, sess *tlsSession, token, pollURL string) (map[string]any, []byte, error) {
-	start := time.Now()
+func (c *Client) pollImage(ctx context.Context, sess *tlsSession, token, pollURL string, downloadResult bool) (map[string]any, []byte, error) {
 	for {
-		if time.Since(start) > 3*time.Minute {
-			return nil, nil, errors.New("adobe generation timed out")
+		if err := ctx.Err(); err != nil {
+			return nil, nil, fmt.Errorf("adobe generation timed out: %w", err)
 		}
 
 		req, err := http.NewRequest(http.MethodGet, pollURL, nil)
@@ -576,6 +587,11 @@ func (c *Client) pollImage(ctx context.Context, sess *tlsSession, token, pollURL
 			if first, ok := outputs[0].(map[string]any); ok {
 				if image, ok := first["image"].(map[string]any); ok {
 					if url := strings.TrimSpace(stringValue(image["presignedUrl"])); url != "" {
+						// Expose the presigned URL for callers that want it directly.
+						payload["image_url"] = url
+						if !downloadResult {
+							return payload, nil, nil
+						}
 						data, err := c.download(ctx, sess, url)
 						if err != nil {
 							return nil, nil, err
@@ -700,10 +716,9 @@ func (c *Client) submitVideo(ctx context.Context, sess *tlsSession, token, endpo
 }
 
 func (c *Client) pollVideo(ctx context.Context, sess *tlsSession, token, pollURL string, downloadResult bool) (map[string]any, []byte, error) {
-	start := time.Now()
 	for {
-		if time.Since(start) > 10*time.Minute {
-			return nil, nil, errors.New("adobe video generation timed out")
+		if err := ctx.Err(); err != nil {
+			return nil, nil, fmt.Errorf("adobe video generation timed out: %w", err)
 		}
 
 		req, err := http.NewRequest(http.MethodGet, pollURL, nil)
@@ -785,7 +800,14 @@ func (c *Client) pollVideo(ctx context.Context, sess *tlsSession, token, pollURL
 // asset is already produced at this point, so a transient network hiccup
 // (connection EOF/reset mid-body, S3 accelerate 5xx) must not fail the whole
 // generation — retry with backoff before giving up.
-func (c *Client) download(ctx context.Context, sess *tlsSession, url string) ([]byte, error) {
+const downloadTimeout = 3 * time.Minute
+
+func (c *Client) download(parent context.Context, sess *tlsSession, url string) ([]byte, error) {
+	// The artifact is already produced; detach from the (often nearly-elapsed)
+	// generation ctx deadline/cancel and give the download its own budget so a
+	// slow CDN read isn't killed mid-body and the backoff-retries can actually run.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), downloadTimeout)
+	defer cancel()
 	var data []byte
 	var err error
 	for _, wait := range []time.Duration{0, 1 * time.Second, 2 * time.Second, 5 * time.Second, 10 * time.Second} {
@@ -892,15 +914,26 @@ type tlsSession struct {
 	fp     fingerprint
 }
 
+// newTLSClient builds a session that routes through the configured proxy (when
+// set). newDirectTLSClient builds one that always uses the local IP. Only the
+// image-generation submit goes through the proxy; reference-image upload,
+// polling and result download run on the local IP.
 func (c *Client) newTLSClient() (*tlsSession, error) {
-	fp := randomFingerprint()
+	return c.newTLSSession(randomFingerprint(), true)
+}
+
+func (c *Client) newDirectTLSClient() (*tlsSession, error) {
+	return c.newTLSSession(randomFingerprint(), false)
+}
+
+func (c *Client) newTLSSession(fp fingerprint, useProxy bool) (*tlsSession, error) {
 	options := []tlsclient.HttpClientOption{
 		tlsclient.WithTimeoutSeconds(60),
 		tlsclient.WithClientProfile(fp.profile),
 		tlsclient.WithNotFollowRedirects(),
 		tlsclient.WithRandomTLSExtensionOrder(),
 	}
-	if c.proxy != "" {
+	if useProxy && c.proxy != "" {
 		options = append(options, tlsclient.WithProxyUrl(c.proxy))
 	}
 	client, err := tlsclient.NewHttpClient(tlsclient.NewNoopLogger(), options...)

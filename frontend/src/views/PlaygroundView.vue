@@ -28,6 +28,7 @@ const prompt = ref(draft.prompt || '')
 const ratio = ref(draft.ratio || '')
 const resolution = ref(draft.resolution || '')
 const duration = ref(draft.duration || '')
+const deai = ref(draft.deai || false)
 
 watch(mode,       (v) => { draft.mode = v })
 watch(modelId,    (v) => { draft.modelId = v })
@@ -35,6 +36,7 @@ watch(prompt,     (v) => { draft.prompt = v })
 watch(ratio,      (v) => { draft.ratio = v })
 watch(resolution, (v) => { draft.resolution = v })
 watch(duration,   (v) => { draft.duration = v })
+watch(deai,       (v) => { draft.deai = v })
 
 const refImages = ref([])      // [{ name, dataUrl }]
 const fileInput = ref(null)
@@ -136,6 +138,13 @@ function tierPrice(normalMap, agentMap, key) {
   }
   return Number(n)
 }
+// 去AI特征 per-tier surcharge (loaded from /deai-pricing; defaults 1/2/3 分).
+const deaiPricing = ref({ enabled: false, price_1k: 1, price_2k: 2, price_4k: 3 })
+const deaiEnabled = computed(() => !!deaiPricing.value.enabled)
+const deaiSurcharge = computed(() => {
+  const key = { '1K': 'price_1k', '2K': 'price_2k', '4K': 'price_4k' }[resolution.value] || 'price_1k'
+  return Number(deaiPricing.value[key] ?? 0)
+})
 const price = computed(() => {
   if (!model.value) return null
   const m = model.value
@@ -145,7 +154,9 @@ const price = computed(() => {
     if (rp == null || dp == null) return null
     return rp + dp
   }
-  return tierPrice(m.prices, m.prices_agent, resolution.value)
+  const base = tierPrice(m.prices, m.prices_agent, resolution.value)
+  if (base == null) return null
+  return base + (deaiEnabled.value && deai.value ? deaiSurcharge.value : 0)
 })
 const priceLabel = computed(() => price.value == null ? '—' : pointsLabel(price.value))
 const canAfford = computed(() => price.value == null || credits.value >= price.value)
@@ -392,6 +403,7 @@ async function fireOne() {
     ratio: ratio.value,
     resolution: resolution.value,
     duration: mode.value === 'video' ? duration.value : '',
+    deai: mode.value === 'image' && deaiEnabled.value ? deai.value : false,
     status: 'pending',
     url: '',
     error: '',
@@ -414,6 +426,7 @@ async function fireOne() {
     model: task.model, prompt: task.prompt, ratio: task.ratio, resolution: task.resolution,
   }
   if (task.kind === 'video') payload.duration = task.duration
+  if (task.kind === 'image' && task.deai) payload.deai = true
   if (refsSnapshot.length) {
     const refs = await Promise.all(refsSnapshot.map(refToBase64))
     payload.reference_images = refs.filter(Boolean)
@@ -458,7 +471,7 @@ async function loadHistory() {
     .map((e) => ({
       id: 'srv-' + e.id,
       prompt: e.prompt, model: e.model, kind: e.kind,
-      ratio: e.ratio, resolution: e.resolution, duration: e.duration,
+      ratio: e.ratio, resolution: e.resolution, duration: e.duration, deai: !!e.deai,
       status: e.status === 'success' ? 'done' : 'running',
       url: e.file ? generatedUrl(e.file) : '',
       error: '',
@@ -574,9 +587,10 @@ function onKey(e) { if (e.key === 'Escape') lightbox.value = null }
 
 onMounted(async () => {
   refreshMe()   // pull the latest real balance
-  const [mm, pp] = await Promise.all([api('/managed-models'), api('/video-presets')])
+  const [mm, pp, dp] = await Promise.all([api('/managed-models'), api('/video-presets'), api('/deai-pricing')])
   allModels.value = mm.data?.data || []
   presets.value = pp.data?.data || []
+  if (dp.ok && dp.data) deaiPricing.value = dp.data
   // Pre-fill from query string (?prompt=...&model=...) — used by the home
   // page's example cards to seed the form in one click.
   const qPrompt = String(route.query.prompt || '')
@@ -681,6 +695,20 @@ onUnmounted(() => {
             {{ r }}
           </button>
         </div>
+      </div>
+
+      <!-- 去AI特征 (image only): opt-in post-processing with a per-tier surcharge -->
+      <div v-if="mode === 'image' && deaiEnabled" class="flex items-center justify-between">
+        <label class="text-xs font-medium text-slate-500">
+          去AI特征
+          <span class="text-slate-400 font-normal">(+{{ deaiSurcharge }} 积分)</span>
+        </label>
+        <button type="button" role="switch" :aria-checked="deai" @click="deai = !deai"
+                class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors"
+                :class="deai ? 'bg-slate-900' : 'bg-slate-200'">
+          <span class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform"
+                :class="deai ? 'translate-x-[18px]' : 'translate-x-0.5'"></span>
+        </button>
       </div>
 
       <div v-if="mode === 'video' && durations.length > 0">
@@ -806,7 +834,7 @@ onUnmounted(() => {
               <div class="pg-cap text-[11px] leading-tight font-medium line-clamp-2 transition-colors"
                    :class="item.prompt ? 'pointer-events-auto cursor-pointer' : ''"
                    :title="item.prompt ? '点击复制提示词' : ''" @click.stop="copyPrompt(item)">{{ item.prompt }}</div>
-              <div class="pg-cap-sub text-[9px] mt-0.5 font-mono truncate">{{ item.model }}<span v-if="item.elapsed_ms"> · {{ (item.elapsed_ms / 1000).toFixed(1) }}s</span></div>
+              <div class="pg-cap-sub text-[9px] mt-0.5 font-mono truncate">{{ item.model }}<span v-if="item.deai"> · <span class="text-[#7c3aed]">去AI</span></span><span v-if="item.elapsed_ms"> · {{ (item.elapsed_ms / 1000).toFixed(1) }}s</span></div>
             </div>
           </template>
           <!-- pending / running -->

@@ -55,6 +55,8 @@ func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.
 	engine.POST("/v1/videos", handlers.V1.CreateVideo)
 	engine.GET("/v1/videos/:id", handlers.V1.GetVideo)
 	engine.GET("/v1/videos/:id/content", handlers.V1.GetVideoContent)
+	// No-store image content proxy (auth-gated upstream URLs, e.g. chatgpt).
+	engine.GET("/v1/images/:id/content", handlers.V1.GetImageContent)
 
 	publicAdmin := engine.Group("/admin/api")
 	{
@@ -65,6 +67,7 @@ func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.
 		publicAdmin.GET("/video-presets", handlers.UserGen.VideoPresets)
 		publicAdmin.GET("/catalog", handlers.UserGen.Catalog)
 		publicAdmin.GET("/models", handlers.UserGen.Models)
+		publicAdmin.GET("/deai-pricing", handlers.AppSettings.DeAIGet)
 		// 易支付 async notify — called server-to-server by the pay platform, no auth.
 		publicAdmin.GET("/pay/notify", handlers.Payment.Notify)
 		publicAdmin.POST("/pay/notify", handlers.Payment.Notify)
@@ -81,7 +84,7 @@ func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.
 	}
 
 	userAuthed := engine.Group("/admin/api")
-	userAuthed.Use(middleware.RequireSession(auth))
+	userAuthed.Use(middleware.RequireSession(auth, cfg))
 	{
 		userAuthed.GET("/logs", handlers.UserGen.Logs)
 		userAuthed.POST("/generate", handlers.UserGen.Generate)
@@ -99,7 +102,7 @@ func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.
 	}
 
 	authed := engine.Group("/admin/api")
-	authed.Use(middleware.RequireAdminSession(auth))
+	authed.Use(middleware.RequireAdminSession(auth, cfg))
 	{
 		authed.GET("/dashboard", handlers.AdminRead.Dashboard)
 		authed.GET("/users", handlers.AdminRead.Users)
@@ -177,6 +180,8 @@ func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.
 			settings.PUT("/credits", handlers.AppSettings.CreditsPut)
 			settings.GET("/logs", handlers.AppSettings.LogsGet)
 			settings.PUT("/logs", handlers.AppSettings.LogsPut)
+			settings.GET("/deai", handlers.AppSettings.DeAIGet)
+			settings.PUT("/deai", handlers.AppSettings.DeAIPut)
 			settings.GET("/media", handlers.AppSettings.MediaGet)
 			settings.PUT("/media", handlers.AppSettings.MediaPut)
 			settings.GET("/announcement", handlers.Announcement.AdminGet)
@@ -186,7 +191,7 @@ func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.
 		}
 	}
 
-	authGroup.Use(middleware.RequireSession(auth))
+	authGroup.Use(middleware.RequireSession(auth, cfg))
 	{
 		authGroup.GET("/me", handlers.Auth.Me)
 		authGroup.GET("/invites", handlers.Auth.Invites)

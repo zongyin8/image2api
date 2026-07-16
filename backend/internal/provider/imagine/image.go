@@ -18,7 +18,7 @@ import (
 // the org objects feed until the batch finishes, then download the produced
 // image. styleID picks the model (41001 = 1.5 / 2K, 41004 = 1.5pro / 4K).
 // HTTP 402 → ErrQuotaExhausted. These models are pure text2img (no refs).
-func (c *Client) GenerateImage(ctx context.Context, cred string, styleID int, resolution, aspectRatio, prompt string) ([]byte, map[string]any, error) {
+func (c *Client) GenerateImage(ctx context.Context, cred string, styleID int, resolution, aspectRatio, prompt string, downloadResult bool) ([]byte, map[string]any, error) {
 	cr, ok := parseCred(cred)
 	if !ok {
 		return nil, nil, ErrAuth
@@ -85,11 +85,15 @@ func (c *Client) GenerateImage(ctx context.Context, cred string, styleID int, re
 	if err != nil {
 		return nil, nil, err
 	}
+	meta := map[string]any{"batch_id": batchID, "image_url": imageURL, "org_id": userID}
+	if !downloadResult {
+		return nil, meta, nil
+	}
 	data, err := c.download(ctx, imageURL)
 	if err != nil {
 		return nil, nil, err
 	}
-	return data, map[string]any{"batch_id": batchID, "image_url": imageURL, "org_id": userID}, nil
+	return data, meta, nil
 }
 
 // pollImage polls the org objects feed until the entry for our batch finishes,
@@ -97,11 +101,16 @@ func (c *Client) GenerateImage(ctx context.Context, cred string, styleID int, re
 func (c *Client) pollImage(ctx context.Context, token, userID, batchID string) (string, error) {
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
+	// Poll for the full generation budget (caller's genCtx), leaving headroom for
+	// the download, instead of a shorter hardcoded cap that killed slow jobs early.
 	deadline := time.Now().Add(4 * time.Minute)
+	if dl, ok := ctx.Deadline(); ok {
+		deadline = dl.Add(-60 * time.Second)
+	}
 
 	url := teamsBase + "/v1/org/" + userID + "/objects?batch=true&limit=50&service=image,chat-image"
 	for {
-		body, status, err := c.apiGet(ctx, token, url)
+		body, status, err := c.apiGetP(ctx, token, url, false)
 		if err == nil && status == 200 {
 			var resp struct {
 				Data []struct {
@@ -181,7 +190,7 @@ func firstImageURL(raw string) string {
 }
 
 func (c *Client) download(ctx context.Context, url string) ([]byte, error) {
-	client, err := c.newTLSClient()
+	client, err := c.newDirectTLSClient()
 	if err != nil {
 		return nil, err
 	}
