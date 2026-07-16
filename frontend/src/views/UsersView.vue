@@ -20,6 +20,12 @@ const showAdd = ref(false)
 const editing = ref(null)
 const recharging = ref(null)   // the user whose credits are being topped up
 const rechargeAmt = ref(0)
+const orderHistoryUser = ref(null)
+const orderHistoryItems = ref([])
+const orderHistoryTotal = ref(0)
+const orderHistoryPage = ref(1)
+const orderHistoryLoading = ref(false)
+const orderHistoryPageSize = 10
 const toast = ref('')
 
 const addForm = ref({ email: '', name: '', password: '', role: 'user', credits: 0, notes: '', concurrency_group_id: '' })
@@ -205,6 +211,51 @@ async function doRecharge() {
   await quickCredits(recharging.value, delta)
   recharging.value = null; rechargeAmt.value = 0
 }
+
+const ORDER_STATUS = { pending: '待支付', paid: '已支付', cancelled: '已取消' }
+const ORDER_SOURCE = { epay: '在线充值', admin: '后台调整', cdk: '兑换码' }
+const ORDER_METHOD = { wxpay: '微信', alipay: '支付宝', admin: '后台', cdk: '兑换码' }
+const orderHistoryPages = computed(() => Math.max(1, Math.ceil(orderHistoryTotal.value / orderHistoryPageSize)))
+
+async function loadOrderHistory() {
+  if (!orderHistoryUser.value) return
+  orderHistoryLoading.value = true
+  const qs = new URLSearchParams({
+    q: orderHistoryUser.value.id,
+    limit: String(orderHistoryPageSize),
+    offset: String((orderHistoryPage.value - 1) * orderHistoryPageSize),
+  })
+  const r = await api('/pay/admin/orders?' + qs.toString())
+  orderHistoryLoading.value = false
+  if (r.ok) {
+    orderHistoryItems.value = r.data?.data || []
+    orderHistoryTotal.value = Number(r.data?.total ?? orderHistoryItems.value.length)
+  } else {
+    orderHistoryItems.value = []
+    orderHistoryTotal.value = 0
+    flash(r.data?.detail || '加载充值记录失败')
+  }
+}
+
+function openOrderHistory(u) {
+  orderHistoryUser.value = u
+  orderHistoryItems.value = []
+  orderHistoryTotal.value = 0
+  orderHistoryPage.value = 1
+  loadOrderHistory()
+}
+
+function closeOrderHistory() {
+  orderHistoryUser.value = null
+  orderHistoryItems.value = []
+}
+
+function goOrderHistoryPage(next) {
+  const target = Math.max(1, Math.min(orderHistoryPages.value, next))
+  if (target === orderHistoryPage.value) return
+  orderHistoryPage.value = target
+  loadOrderHistory()
+}
 </script>
 
 <template>
@@ -293,7 +344,7 @@ async function doRecharge() {
           <col class="w-28" />     <!-- registered -->
           <col class="w-28" />     <!-- last login -->
           <col class="w-32" />     <!-- login IP -->
-          <col class="w-32" />     <!-- actions -->
+          <col class="w-40" />     <!-- actions -->
         </colgroup>
         <thead>
           <tr class="text-[10px] uppercase tracking-[0.2em] text-white/40 border-b border-white/[0.06]">
@@ -392,6 +443,9 @@ async function doRecharge() {
               <div class="inline-flex items-center gap-1">
                 <button @click="openRecharge(u)" class="act" title="充值">
                   <Icon name="spark" class="w-3.5 h-3.5" />
+                </button>
+                <button @click="openOrderHistory(u)" class="act" title="查看充值记录">
+                  <Icon name="receipt" class="w-3.5 h-3.5" />
                 </button>
                 <button @click="editing = JSON.parse(JSON.stringify(u))" class="act" title="编辑">
                   <Icon name="config" class="w-3.5 h-3.5" />
@@ -549,6 +603,74 @@ async function doRecharge() {
           <div class="flex justify-end gap-2 pt-2">
             <button @click="recharging = null" class="btn-soft">取消</button>
             <button @click="doRecharge" class="btn-primary">确认充值</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recharge history modal -->
+    <div v-if="orderHistoryUser"
+         class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto"
+         @click.self="closeOrderHistory">
+      <div class="card !shadow-2xl my-12 w-full max-w-4xl overflow-hidden">
+        <div class="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between gap-4">
+          <div class="min-w-0">
+            <h2 class="text-sm font-semibold">充值记录</h2>
+            <p class="text-xs text-white/45 mt-0.5 truncate">
+              {{ orderHistoryUser.name || orderHistoryUser.email || orderHistoryUser.id }} · 共 {{ orderHistoryTotal }} 条
+            </p>
+          </div>
+          <button @click="closeOrderHistory" class="text-white/40 hover:text-white" title="关闭">
+            <Icon name="close" class="w-5 h-5" />
+          </button>
+        </div>
+
+        <div v-if="orderHistoryLoading && !orderHistoryItems.length" class="text-center text-sm text-white/40 py-16">
+          加载中...
+        </div>
+        <div v-else-if="!orderHistoryItems.length" class="text-center text-sm text-white/40 py-16">
+          暂无充值记录
+        </div>
+        <div v-else class="overflow-x-auto">
+          <table class="w-full text-sm min-w-[760px]">
+            <thead>
+              <tr class="text-[10px] uppercase tracking-[0.16em] text-white/40 border-b border-white/[0.06]">
+                <th class="text-left px-5 py-3 font-medium">时间</th>
+                <th class="text-left px-3 py-3 font-medium">来源</th>
+                <th class="text-left px-3 py-3 font-medium">订单号</th>
+                <th class="text-right px-3 py-3 font-medium">金额</th>
+                <th class="text-right px-3 py-3 font-medium">积分</th>
+                <th class="text-left px-3 py-3 font-medium">状态</th>
+                <th class="text-left px-5 py-3 font-medium">备注</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="o in orderHistoryItems" :key="o.id" class="border-b border-white/[0.04] last:border-0 hover:bg-white/[0.025]">
+                <td class="px-5 py-3.5 text-xs text-white/60 whitespace-nowrap">{{ fmtTs(o.paid_at || o.created_at) }}</td>
+                <td class="px-3 py-3.5 whitespace-nowrap">
+                  <span class="chip">{{ ORDER_SOURCE[o.source] || ORDER_METHOD[o.pay_type] || o.source || '其他' }}</span>
+                </td>
+                <td class="px-3 py-3.5 font-mono text-[11px] text-white/55 max-w-[180px] truncate" :title="o.id">{{ o.id }}</td>
+                <td class="px-3 py-3.5 text-right tabular-nums text-white/80 whitespace-nowrap">
+                  {{ o.source === 'epay' ? '¥' + Number(o.amount || 0).toFixed(2) : '—' }}
+                </td>
+                <td class="px-3 py-3.5 text-right tabular-nums font-medium whitespace-nowrap"
+                    :class="Number(o.points) < 0 ? 'text-rose-300' : 'text-emerald-300'">
+                  {{ Number(o.points) > 0 ? '+' : '' }}{{ Number(o.points || 0).toLocaleString('en-US') }}
+                </td>
+                <td class="px-3 py-3.5 text-xs text-white/70 whitespace-nowrap">{{ ORDER_STATUS[o.status] || o.status || '—' }}</td>
+                <td class="px-5 py-3.5 text-xs text-white/55 max-w-[220px] truncate" :title="o.remark || ''">{{ o.remark || '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div v-if="orderHistoryTotal > orderHistoryPageSize"
+             class="px-5 py-3 border-t border-white/[0.06] flex items-center justify-between text-xs text-white/50">
+          <span>第 {{ orderHistoryPage }} / {{ orderHistoryPages }} 页</span>
+          <div class="flex items-center gap-2">
+            <button class="btn-soft !py-1.5" :disabled="orderHistoryPage <= 1" @click="goOrderHistoryPage(orderHistoryPage - 1)">上一页</button>
+            <button class="btn-soft !py-1.5" :disabled="orderHistoryPage >= orderHistoryPages" @click="goOrderHistoryPage(orderHistoryPage + 1)">下一页</button>
           </div>
         </div>
       </div>
