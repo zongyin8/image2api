@@ -59,6 +59,9 @@ Nginx 参考配置是 `ops/nginx-tu.go2api.cc.conf`。其中 Provisioner key 是
 
 - 旧 ChatGPT2API 和 autoheal 容器已删除，旧 Docker 镜像标签已清理。
 - 旧图片、视频和缩略图目录已删除；Nginx `/images/` 仅代理 image2api/RustFS。
+- 经典门户的视频模式读取 `/admin/api/managed-models` 中已启用的视频模型，
+  通过 `/admin/api/generate` 生成；同步连接超时后使用 `/admin/api/jobs/mine`
+  自动恢复后台任务，不再依赖旧 ChatGPT2API 的 `/api/video/*` 路由。
 - Provisioner 使用本仓库 Compose 运行，旧账号同步器和 watcher 已移除。
 - 重复的 `image2api-g2a` 孤立容器已删除，卷暂时保留用于回滚。
 - `/opt/gpt` 已完整删除；删除前的关键控制配置和文件清单保存在 cutover 备份目录。

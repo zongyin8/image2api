@@ -59,6 +59,7 @@
     selectMode: false,        // 生成结果的「选择/批量下载」模式
     selected: new Set(),      // 已选图片的 src 集合
     imageModels: [],          // /admin/api/models 返回的 image 类模型（含 ratios/resolutions）
+    videoModels: [],          // managed-models 中已启用的 video 类模型
     apiKeyInfo: null,         // /admin/api/auth/api-key 返回的 {key_preview,...}（无则 null）
     apiKeyPlain: "",          // 刚 mint 出来的明文 key（仅本次会话内存，供复制）
   };
@@ -250,31 +251,35 @@
     updateCostHint();
   }
 
-  // 参考图上传框：图生图模式常显；视频模式仅 6/10 秒可用（15 秒不支持参考图，隐藏+清空+提示）
+  // 参考图上传框按当前模型的 max_reference_images 动态显示。
   function refreshUploadBox() {
     const isImage = state.mode === "image";
     const isVideo = state.mode === "video";
-    const vidSecs = Number(els.vidSeconds?.value) || (state.videoConfig?.seconds_options?.[0] || 6);
-    if (isVideo && vidSecs === 15 && state.referenceFiles && state.referenceFiles.length) {
+    const videoMaxRefs = Math.max(0, Number(currentVideoModel()?.max_reference_images || 0));
+    if (isVideo && videoMaxRefs === 0 && state.referenceFiles && state.referenceFiles.length) {
       state.referenceFiles = [];
       renderReferences();
     }
-    const videoRefAllowed = isVideo && vidSecs !== 15;
+    const videoRefAllowed = isVideo && videoMaxRefs > 0;
     els.imageUploadBox.classList.toggle("hidden", !(isImage || videoRefAllowed));
-    if (els.vidRefHint) els.vidRefHint.classList.toggle("hidden", !(isVideo && vidSecs === 15));
+    if (els.vidRefHint) els.vidRefHint.classList.add("hidden");
     updatePickBtn();
   }
 
   const MAX_REF = 6;  // 参考图最多 6 张（图生视频/图生图上限）
+  function maxReferenceFiles() {
+    return state.mode === "video" ? Math.max(0, Number(currentVideoModel()?.max_reference_images || 0)) : MAX_REF;
+  }
   let refObjectUrls = [];
   function updatePickBtn() {
     if (!els.pickImageBtn) return;
-    const full = (state.referenceFiles || []).length >= MAX_REF;
+    const maxRefs = maxReferenceFiles();
+    const full = maxRefs <= 0 || (state.referenceFiles || []).length >= maxRefs;
     els.pickImageBtn.disabled = full;
     const _pb = document.getElementById("pasteImageBtn");
     if (_pb) _pb.disabled = full;
-    const base = state.mode === "video" ? "上传参考图（可选，最多6张）" : "上传参考图（最多6张）";
-    els.pickImageBtn.textContent = full ? "参考图已满（最多6张）" : base;
+    const base = state.mode === "video" ? `上传参考图（可选，最多${maxRefs}张）` : `上传参考图（最多${MAX_REF}张）`;
+    els.pickImageBtn.textContent = full ? `参考图已满（最多${maxRefs}张）` : base;
   }
   function renderReferences() {
     // 释放上次的预览 URL，避免内存泄漏
@@ -956,7 +961,9 @@
     try { data = await res.json(); } catch {}
     if (!res.ok) {
       const detail = data?.detail?.error || data?.detail || data?.error || data?.message || `请求失败 ${res.status}`;
-      throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+      const error = new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+      error.status = res.status;
+      throw error;
     }
     return data;
   }
@@ -987,6 +994,10 @@
     const v = els.model?.value || "";
     // 下拉 value 是别名(有别名时)或 id — 两种都要能匹配回代表配置。
     return (state.imageModels || []).find(m => (m.alias || m.id) === v);
+  }
+  function currentVideoModel() {
+    const value = els.videoModel?.value || "";
+    return (state.videoModels || []).find(m => (m.alias || m.id) === value);
   }
   async function loadImageModels() {
     // 只显示 admin 实际配置的模型（managed-models），对齐 网关 自己的前端——
@@ -1064,10 +1075,12 @@
   }
   function currentGenerationCost() {
     if (state.mode === "video") {
-      const secs = Number(els.vidSeconds?.value) || (state.videoConfig.seconds_options[0] || 6);
-      const per = Number(state.videoConfig.per_second) || 0;
-      const sur = (String(els.vidResolution?.value) === "720p") ? (Number(state.videoConfig.surcharge_720p) || 0) : 0;
-      return secs * (per + sur);
+      const model = currentVideoModel();
+      const resolution = String(els.vidResolution?.value || "");
+      const duration = String(els.vidSeconds?.value || "");
+      const prices = model?.prices || {};
+      const durationPrices = model?.duration_prices || {};
+      return (Number(prices[resolution]) || 0) + (Number(durationPrices[duration]) || 0);
     }
     const count = Math.max(1, Math.min(4, Number(els.count?.value) || 1));
     // 模型逐档单价在 managed-models 的 prices 里(如 {"1K":5,"2K":8,"4K":15}),按清晰度档取。
@@ -1107,11 +1120,41 @@
   }
   function currentModeLabel() { return state.mode === "video" ? "视频" : (state.mode === "image" ? "图生图" : "文生图"); }
   async function loadVideoConfig() {
-    // 网关 无 /api/video/config，且视频走 /admin/api/generate(video model) 是同步渲染、
-    // 极易触发网关超时，需要额外的「超时后凭 /logs 回收」逻辑，本次改造范围只做图片。
-    // 因此这里保持视频模式隐藏（不启用）。视频接入方案见 MIGRATION_NOTES「需要拍板」。
-    if (els.videoModeBtn) els.videoModeBtn.classList.add("hidden");
-    state.videoConfig.enabled = false;
+    try {
+      const data = await api("/admin/api/managed-models");
+      const all = Array.isArray(data.data) ? data.data : [];
+      state.videoModels = all.filter(m => m.id && m.enabled !== false && (m.type || m.kind) === "video");
+      if (!state.videoModels.length) throw new Error("没有已启用的视频模型");
+      els.videoModel.innerHTML = state.videoModels.map(m => `<option value="${escapeHtml(m.alias || m.id)}">${escapeHtml(m.alias || m.name || m.id)}</option>`).join("");
+      state.videoConfig.enabled = true;
+      els.videoModeBtn?.classList.remove("hidden");
+      applyVideoModelUi();
+    } catch {
+      state.videoConfig.enabled = false;
+      els.videoModeBtn?.classList.add("hidden");
+      if (state.mode === "video") setMode("text");
+    }
+  }
+  function applyVideoModelUi() {
+    const model = currentVideoModel();
+    if (!model) return;
+    const fill = (select, values) => {
+      if (!select) return;
+      const previous = select.value;
+      select.innerHTML = (values || []).map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("");
+      if ((values || []).includes(previous)) select.value = previous;
+    };
+    fill(els.vidSeconds, model.durations || []);
+    fill(els.vidResolution, model.resolutions || []);
+    fill(els.vidOrient, model.ratios || []);
+    const maxRefs = Math.max(0, Number(model.max_reference_images || 0));
+    if (state.referenceFiles.length > maxRefs) {
+      state.referenceFiles = state.referenceFiles.slice(0, maxRefs);
+      renderReferences();
+    }
+    els.vidPreset?.closest(".control")?.classList.add("hidden");
+    refreshUploadBox();
+    updateCostHint();
   }
   async function loadAnnouncement() {
     // 网关：GET /admin/api/announcement → { content, version, seen }（需登录态）。
@@ -1354,68 +1397,96 @@
     if (!prompt) { setMessage("请先输入提示词", "error"); return; }
     let identity = state.identity;
     if (!identity) { try { identity = await refreshMe(); } catch {} }
+    const videoModel = currentVideoModel();
+    if (!videoModel) { setMessage("当前没有可用的视频模型", "error"); return; }
     const needCost = currentGenerationCost();
-    const remaining = identity?.unlimited ? Infinity : Number(identity?.remaining ?? Math.max(0, Number(identity?.quota || 0) - Number(identity?.used || 0)));
-    if (!identity?.unlimited && remaining < needCost) {
-      setMessage(`积分不足：本次需要 ${needCost} 积分，当前余额 ${Math.max(0, remaining || 0)}，请先充值`, "error");
+    const remaining = Number(identity?.credits || 0);
+    if (remaining < needCost) {
+      setMessage(`积分不足：本次需要 ${needCost} 积分，当前余额 ${Math.max(0, remaining)}，请先充值`, "error");
       showPage("recharge"); return;
     }
-    const seconds = Number(els.vidSeconds?.value) || (state.videoConfig.seconds_options[0] || 6);
+    const duration = String(els.vidSeconds?.value || "");
     const resolution = els.vidResolution?.value || "720p";
-    const size = els.vidOrient?.value || "720x1280";
-    const preset = els.vidPreset?.value || "";
-    // 参考图（图生视频）：仅 6/10 秒可用，15 秒不带
-    const refs = (seconds !== 15) ? (state.referenceFiles || []) : [];
-    const task = { id: uid(), mode: "video", prompt, model: "grok-video", size: `${resolution} · ${seconds}秒`, creditCost: needCost, qualityLabel: resolution, modeLabel: refs.length ? "图生视频" : "视频", createdAt: Date.now(), video: { status: "loading", taskId: "", progress: 0, message: "正在提交..." } };
+    const ratio = els.vidOrient?.value || "16:9";
+    const maxRefs = Math.max(0, Number(videoModel.max_reference_images || 0));
+    const refFiles = maxRefs > 0 ? (state.referenceFiles || []).slice(0, maxRefs) : [];
+    const refs = (await Promise.all(refFiles.map(refFileToBase64))).filter(Boolean);
+    const model = videoModel.alias || videoModel.id;
+    const task = { id: uid(), mode: "video", prompt, model, size: `${resolution} · ${duration}`, creditCost: needCost, qualityLabel: resolution, modeLabel: refs.length ? "图生视频" : "视频", createdAt: Date.now(), video: { status: "loading", taskId: "", progress: 0, message: "视频生成中..." } };
     state.tasks.unshift(task);
     render(); saveTasks(); setMessage("视频任务已提交，正在生成...", "ok"); scrollToOutputOnMobile();
     els.generate.disabled = true;
     try {
-      let res;
-      if (refs.length) {
-        const fd = new FormData();
-        fd.append("prompt", prompt); fd.append("seconds", String(seconds));
-        fd.append("size", size); fd.append("resolution", resolution); fd.append("preset", preset);
-        refs.forEach((f, i) => fd.append("input_reference", f, f.name || `ref${i}.png`));
-        res = await api("/api/video/generate", { method: "POST", headers: { Authorization: `Bearer ${state.key}` }, body: fd });
-      } else {
-        res = await api("/api/video/generate", { method: "POST", headers: { Authorization: `Bearer ${state.key}`, "Content-Type": "application/json" }, body: JSON.stringify({ prompt, seconds, size, resolution, preset }) });
-      }
-      task.video.taskId = res.id; task.video.message = "生成中...";
-      render(); saveTasks(); void refreshMe(); void loadCreditHistory();
-      pollVideo(task);
+      const res = await api("/admin/api/generate", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ model, prompt, duration, resolution, ratio, reference_images: refs }),
+      });
+      const url = String(res.url || (Array.isArray(res.data) && res.data[0]?.url) || "");
+      if (!url) throw new Error("后端未返回视频地址");
+      task.video = { status: "success", url, progress: 100 };
+      if (res.charged != null) task.creditCost = res.charged;
+      if (state.identity && res.credits != null) state.identity.credits = res.credits;
+      setMessage("视频生成完成", "ok");
+      saveTasks(); render(); void refreshMe(); void loadCreditHistory();
     } catch (e) {
-      task.video = { status: "error", error: e.message || String(e) };
-      setMessage(explainError(e.message || e).title, "error"); void refreshMe();
-      saveTasks(); render();
+      const message = e.message || String(e);
+      const recoverable = !e.status || e.status >= 500 || /timeout|timed out|failed to fetch|network|524/i.test(message);
+      if (recoverable) {
+        task.video.message = "连接超时，后台仍在生成，正在自动恢复...";
+        saveTasks(); render();
+        try {
+          await recoverVideoTask(task, message);
+        } catch (recoverError) {
+          task.video = { status: "error", error: recoverError.message || String(recoverError) };
+          setMessage(explainError(task.video.error).title, "error");
+          saveTasks(); render();
+        }
+      } else {
+        task.video = { status: "error", error: message };
+        setMessage(explainError(message).title, "error");
+        saveTasks(); render();
+      }
+      void refreshMe();
     } finally { els.generate.disabled = false; }
   }
 
-  async function pollVideo(task) {
-    const id = task.video && task.video.taskId;
-    if (!id || state.polling.has(id)) return;
-    state.polling.add(id);
-    const started = Date.now();
-    try {
-      // grok 出片实测 1~6 分钟不等，5 分钟的线会误杀慢单（后端成功、前端却报失败）
-      while (Date.now() - started < 20 * 60 * 1000) {
-        await sleep(4000);
-        let d;
-        try { d = await api(`/api/video/status/${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${state.key}` } }); }
-        catch { continue; }
-        if (task.video && d.progress != null) { task.video.progress = d.progress; task.video.message = `生成中 ${d.progress}%`; render(); saveTasks(); }
-        if (d.status === "completed" || d.status === "succeeded") {
-          task.video = { status: "success", taskId: id, url: d.url, progress: 100 };
-          setMessage("视频生成完成", "ok"); void refreshMe(); void loadCreditHistory(); saveTasks(); render(); return;
+  async function recoverVideoTask(task, submitError = "") {
+    const deadline = Date.now() + 12 * 60 * 1000;
+    const lookupDeadline = Date.now() + 30000;
+    const normalize = value => String(value || "").trim().replace(/\s+/g, " ");
+    const wantedPrompt = normalize(task.prompt);
+    let found = false;
+    while (Date.now() < deadline) {
+      let data = null;
+      try { data = await api("/admin/api/jobs/mine?source=user", { headers: authHeaders() }); }
+      catch { await sleep(4000); continue; }
+      const candidates = [data?.pending, data?.latest].filter(Boolean);
+      const job = candidates.find(item => {
+        if (String(item.kind || "") !== "video") return false;
+        const prompt = normalize(item.prompt);
+        return !wantedPrompt || !prompt || prompt.includes(wantedPrompt) || wantedPrompt.includes(prompt);
+      });
+      if (job) {
+        found = true;
+        task.video.taskId = job.id || task.video.taskId || "";
+        const status = String(job.status || "").toLowerCase();
+        if (["success", "succeeded", "completed"].includes(status) && job.url) {
+          task.video = { status: "success", taskId: job.id || "", url: job.url, progress: 100 };
+          if (job.charged != null) task.creditCost = job.charged;
+          setMessage("视频生成完成", "ok");
+          saveTasks(); render(); void refreshMe(); void loadCreditHistory();
+          return;
         }
-        if (d.status === "failed" || d.status === "error" || d.status === "canceled") {
-          task.video = { status: "error", error: d.error || "视频生成失败" };
-          setMessage(explainError(task.video.error).title, "error"); void refreshMe(); void loadCreditHistory(); saveTasks(); render(); return;
-        }
+        if (["failed", "error", "canceled"].includes(status)) throw new Error(job.error || "视频生成失败");
+        task.video.message = "后台生成中...";
+        saveTasks(); render();
+      } else if (!found && Date.now() >= lookupDeadline) {
+        throw new Error(submitError || "未找到后台视频任务");
       }
-      // 保留 taskId + timedOut 标记：后端任务元数据留 24h，刷新页面会自动接着轮询把结果捞回来
-      if (task.video) { Object.assign(task.video, { status: "error", timedOut: true, error: "前端等待超时。任务可能仍在生成，刷新页面会自动继续查询。" }); saveTasks(); render(); }
-    } finally { state.polling.delete(id); }
+      await sleep(4000);
+    }
+    throw new Error("视频生成等待超时，请到我的图片查看结果");
   }
 
   async function generate() {
@@ -1549,7 +1620,14 @@
     for (const task of state.tasks) {
       if (task.mode === "video") {
         const v = task.video;
-        if (v && v.status === "loading") { Object.assign(v, { status: "error", error: "任务中断：请到「我的图片」查看是否已生成，或重试。" }); __changed = true; }
+        if (v && v.status === "loading") {
+          v.message = "正在从服务器恢复视频任务...";
+          __changed = true;
+          void recoverVideoTask(task, "任务中断且未找到后台结果").catch(err => {
+            task.video = { status: "error", error: err.message || String(err) };
+            saveTasks(); render();
+          });
+        }
         continue;
       }
       for (const img of task.images || []) {
@@ -1684,8 +1762,9 @@
   els.textModeBtn.onclick = () => setMode("text");
   els.imageModeBtn.onclick = () => setMode("image");
   if (els.videoModeBtn) els.videoModeBtn.onclick = () => setMode("video");
-  for (const el of [els.vidResolution, els.vidOrient, els.vidPreset]) { if (el) el.onchange = updateCostHint; }
-  if (els.vidSeconds) els.vidSeconds.onchange = () => { updateCostHint(); refreshUploadBox(); };
+  if (els.videoModel) els.videoModel.onchange = applyVideoModelUi;
+  for (const el of [els.vidResolution, els.vidOrient]) { if (el) el.onchange = updateCostHint; }
+  if (els.vidSeconds) els.vidSeconds.onchange = updateCostHint;
   els.pickImageBtn.onclick = () => els.imageInput.click();
   // 追加参考图的公共逻辑（文件选择 / 剪贴板粘贴共用）：去重、限 MAX_REF、渲染，返回新增张数
   // 上传前把大图用 canvas 压到最长边 maxDim(默认2048),避免高分辨率图解码成巨大位图把后端内存吃爆。
@@ -1721,9 +1800,10 @@
 
   async function addReferenceFiles(files) {
     const picked = Array.from(files || []).filter(file => file && file.type && file.type.startsWith("image/"));
+    const maxRefs = maxReferenceFiles();
     let skipped = false, added = 0;
     for (const raw of picked) {
-      if (state.referenceFiles.length >= MAX_REF) { skipped = true; break; }  // 最多 6 张
+      if (state.referenceFiles.length >= maxRefs) { skipped = true; break; }
       const file = await downscaleImageFile(raw, 1024);
       // 同名同大小才视为重复（压缩确定性→同图重复添加仍能去重）
       const dup = state.referenceFiles.some(f => f.name === file.name && f.size === file.size);
@@ -1732,7 +1812,7 @@
       added++;
       renderReferences();
     }
-    if (skipped) setMessage(`参考图最多 ${MAX_REF} 张，多余的未添加`, "error");
+    if (skipped) setMessage(`参考图最多 ${maxRefs} 张，多余的未添加`, "error");
     renderReferences();
     return added;
   }
@@ -1741,11 +1821,10 @@
     // 清空 input，使下次还能选（含同一文件/换目录），且不会用新选择覆盖已添加的
     els.imageInput.value = "";
   };
-  // 是否可添加参考图：图生图，或 6/10 秒图生视频
+  // 是否可添加参考图：图生图，或当前视频模型允许参考帧。
   function refInputAllowed() {
     if (state.mode === "image") return true;
-    const vidSecs = Number(els.vidSeconds && els.vidSeconds.value) || (state.videoConfig && state.videoConfig.seconds_options && state.videoConfig.seconds_options[0]) || 6;
-    return state.mode === "video" && vidSecs !== 15;
+    return state.mode === "video" && Number(currentVideoModel()?.max_reference_images || 0) > 0;
   }
   // 剪贴板图片常叫 image.png，重命名（带时间戳）避免被同名去重误判
   function _clipboardImageFiles(blobs) {
