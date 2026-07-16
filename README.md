@@ -146,9 +146,9 @@
 | **Leonardo.ai** | seedream-4.5 | 图像 |
 | **Krea.ai** | flux-klein-2 | 图像 |
 | **Imagine.art** | imagine-1.5 · imagine-1.5pro | 图像 |
-| **自定义上游** | 任意 OpenAI 兼容 v1 端点(按 id 路由) | 图像 / 视频 |
+| **自定义上游** | OpenAI 兼容 v1 端点 · 即梦媒体 API `/v1/media`(按 id 路由) | 图像 / 视频 |
 
-> 模型由管理后台动态启用并定价,可随时增删。自定义上游支持把任何 OpenAI 兼容服务接成账号,按 model id 路由调用。
+> 模型由管理后台动态启用并定价,可随时增删。自定义上游支持 OpenAI/Sora 协议及即梦媒体任务协议,按 model id 路由调用。
 
 ## 🔌 OpenAI 兼容 API
 

@@ -2,23 +2,23 @@ package service
 
 import (
 	"context"
-	"sync"
-	"sync/atomic"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"backend/internal/model"
 	"backend/internal/provider/adobe"
 	"backend/internal/provider/chatgpt"
+	"backend/internal/provider/grok"
 	"backend/internal/provider/imagine"
 	"backend/internal/provider/krea"
 	"backend/internal/provider/leonardo"
-	"backend/internal/provider/grok"
 	"backend/internal/provider/runway"
 	"backend/internal/repo"
 
@@ -890,7 +890,6 @@ func (s *TokenService) ImportGrokToken(ctx context.Context, ssoToken, tokenID st
 	return item, nil
 }
 
-
 func (s *TokenService) checkPendingGrok(tokenID, ssoToken string) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -1022,9 +1021,16 @@ func (s *TokenService) RefreshGrokLiveness(ctx context.Context) {
 // csv list of model ids it serves (empty = all), plus optional weight and
 // per-account concurrency. No probe — the account goes active immediately and is
 // matched to custom models by id at generation time. Calls go direct (no proxy).
-func (s *TokenService) ImportCustomAccount(ctx context.Context, baseURL, apiKey, models, name string, weight, concurrency int, tokenID string) (*model.TokenAccount, error) {
+func (s *TokenService) ImportCustomAccount(ctx context.Context, baseURL, apiKey, models, name, protocol string, weight, concurrency int, tokenID string) (*model.TokenAccount, error) {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	apiKey = strings.TrimSpace(apiKey)
+	protocol = strings.ToLower(strings.TrimSpace(protocol))
+	if protocol == "" {
+		protocol = "openai"
+	}
+	if protocol != "openai" && protocol != "media" {
+		return nil, errors.New("unsupported upstream protocol")
+	}
 	// Edit mode: tokenID points at an existing custom account. base_url required;
 	// a blank key keeps the stored one.
 	if strings.TrimSpace(tokenID) != "" {
@@ -1035,7 +1041,7 @@ func (s *TokenService) ImportCustomAccount(ctx context.Context, baseURL, apiKey,
 		if baseURL == "" {
 			return nil, errors.New("base_url required")
 		}
-		meta := datatypes.JSONMap{"base_url": baseURL}
+		meta := datatypes.JSONMap{"base_url": baseURL, "protocol": protocol}
 		if m := strings.TrimSpace(models); m != "" {
 			meta["models"] = m
 		}
@@ -1053,7 +1059,7 @@ func (s *TokenService) ImportCustomAccount(ctx context.Context, baseURL, apiKey,
 	if baseURL == "" || apiKey == "" {
 		return nil, errors.New("base_url and key required")
 	}
-	meta := datatypes.JSONMap{"base_url": baseURL}
+	meta := datatypes.JSONMap{"base_url": baseURL, "protocol": protocol}
 	if m := strings.TrimSpace(models); m != "" {
 		meta["models"] = m
 	}
@@ -1686,6 +1692,7 @@ func accountRow(item model.TokenAccount, inFlight int64) map[string]any {
 		"concurrency":       item.Concurrency,
 		"base_url":          emptyToNil(strings.TrimSpace(stringValue(item.Meta["base_url"]))),
 		"models":            strings.TrimSpace(stringValue(item.Meta["models"])),
+		"protocol":          defaultString(strings.TrimSpace(stringValue(item.Meta["protocol"])), "openai"),
 	}
 }
 

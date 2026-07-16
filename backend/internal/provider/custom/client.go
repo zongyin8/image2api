@@ -183,6 +183,176 @@ func (c *Client) GenerateVideo(ctx context.Context, baseURL, apiKey, model, prom
 	}
 }
 
+// GenerateMediaVideo drives the media-task protocol used by the Jimeng relay:
+// upload reference images, create a task, poll it, then return or download the
+// final video URL. The upstream may return either relative or absolute URLs.
+func (c *Client) GenerateMediaVideo(ctx context.Context, baseURL, apiKey, model, prompt, aspectRatio string, seconds int, refs [][]byte, downloadResult bool) ([]byte, string, error) {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" || apiKey == "" {
+		return nil, "", ErrAuth
+	}
+
+	images := make([]string, 0, len(refs))
+	for i, ref := range refs {
+		uploaded, err := c.uploadMedia(ctx, baseURL, apiKey, ref, i)
+		if err != nil {
+			return nil, "", err
+		}
+		images = append(images, uploaded)
+	}
+
+	params := map[string]any{
+		"duration":     seconds,
+		"aspect_ratio": aspectRatio,
+	}
+	if len(images) > 0 {
+		params["images"] = images
+	}
+	payload := map[string]any{
+		"model":  model,
+		"prompt": prompt,
+		"params": params,
+	}
+	raw, _ := json.Marshal(payload)
+	created, err := c.doJSON(ctx, http.MethodPost, baseURL+"/v1/media/generate", apiKey, raw)
+	if err != nil {
+		return nil, "", err
+	}
+	taskID := strings.TrimSpace(stringValue(created["task_id"]))
+	if taskID == "" {
+		return nil, "", fmt.Errorf("%w: media create missing task_id", ErrTemporaryUpstream)
+	}
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, "", err
+		}
+		statusURL := baseURL + "/v1/media/status?task_id=" + url.QueryEscape(taskID)
+		job, err := c.doJSON(ctx, http.MethodGet, statusURL, apiKey, nil)
+		if err != nil {
+			if errors.Is(err, ErrTemporaryUpstream) {
+				if sleepCtx(ctx, 5*time.Second) != nil {
+					return nil, "", ctx.Err()
+				}
+				continue
+			}
+			return nil, "", err
+		}
+		state := strings.ToLower(strings.TrimSpace(stringValue(job["state"])))
+		switch state {
+		case "success":
+			videoURL := strings.TrimSpace(stringValue(job["video_url"]))
+			if videoURL == "" {
+				videoURL = strings.TrimSpace(stringValue(job["result_url"]))
+			}
+			videoURL = resolveMediaURL(baseURL, videoURL)
+			if videoURL == "" {
+				return nil, "", fmt.Errorf("%w: media task succeeded without video url", ErrTemporaryUpstream)
+			}
+			if !downloadResult {
+				return nil, videoURL, nil
+			}
+			data, err := c.downloadMedia(ctx, baseURL, videoURL, apiKey)
+			if err != nil {
+				return nil, "", err
+			}
+			return data, videoURL, nil
+		case "failed":
+			reason := strings.TrimSpace(stringValue(job["error"]))
+			if isCreditError(reason) {
+				return nil, "", fmt.Errorf("%w: %s", ErrQuotaExhausted, clip([]byte(reason), 160))
+			}
+			return nil, "", fmt.Errorf("custom: media task failed: %s", clip([]byte(reason), 160))
+		}
+		if sleepCtx(ctx, 5*time.Second) != nil {
+			return nil, "", ctx.Err()
+		}
+	}
+}
+
+func (c *Client) downloadMedia(ctx context.Context, baseURL, videoURL, apiKey string) ([]byte, error) {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, videoURL, nil)
+	base, baseErr := url.Parse(baseURL)
+	target, targetErr := url.Parse(videoURL)
+	if baseErr == nil && targetErr == nil && strings.EqualFold(base.Host, target.Host) {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	resp, err := httpClient().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrTemporaryUpstream, sanitizeErr(err))
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("%w: download %d", ErrTemporaryUpstream, resp.StatusCode)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 {
+		return nil, fmt.Errorf("%w: empty download", ErrTemporaryUpstream)
+	}
+	return data, nil
+}
+
+func (c *Client) uploadMedia(ctx context.Context, baseURL, apiKey string, data []byte, index int) (string, error) {
+	body := &bytes.Buffer{}
+	w := multipart.NewWriter(body)
+	fw, err := w.CreateFormFile("file", fmt.Sprintf("reference_%d.png", index+1))
+	if err != nil {
+		return "", err
+	}
+	if _, err := fw.Write(data); err != nil {
+		return "", err
+	}
+	if err := w.Close(); err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v1/media/upload", body)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	resp, err := httpClient().Do(req)
+	if err != nil {
+		return "", fmt.Errorf("%w: %s", ErrTemporaryUpstream, sanitizeErr(err))
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if e := mapStatus(resp.StatusCode, raw); e != nil {
+		return "", e
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return "", fmt.Errorf("%w: media upload non-json", ErrTemporaryUpstream)
+	}
+	uploaded := strings.TrimSpace(stringValue(out["url"]))
+	if uploaded == "" {
+		return "", fmt.Errorf("%w: media upload missing url", ErrTemporaryUpstream)
+	}
+	return uploaded, nil
+}
+
+func resolveMediaURL(baseURL, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	u, err := url.Parse(value)
+	if err != nil {
+		return ""
+	}
+	if u.IsAbs() {
+		return u.String()
+	}
+	base, err := url.Parse(strings.TrimRight(baseURL, "/") + "/")
+	if err != nil {
+		return ""
+	}
+	return base.ResolveReference(u).String()
+}
+
 func (c *Client) doJSON(ctx context.Context, method, url, apiKey string, body []byte) (map[string]any, error) {
 	var reader io.Reader
 	if body != nil {

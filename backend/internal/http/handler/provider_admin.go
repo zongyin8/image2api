@@ -142,6 +142,7 @@ func (h *ProviderAdminHandler) ImportCustomAccount(c *gin.Context) {
 		Name        string `json:"name"`
 		Weight      int    `json:"weight"`
 		Concurrency int    `json:"concurrency"`
+		Protocol    string `json:"protocol"`
 		ID          string `json:"id"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -156,7 +157,7 @@ func (h *ProviderAdminHandler) ImportCustomAccount(c *gin.Context) {
 	if key == "" {
 		key = body.APIKey
 	}
-	item, err := h.tokens.ImportCustomAccount(c.Request.Context(), baseURL, key, body.Models, body.Name, body.Weight, body.Concurrency, body.ID)
+	item, err := h.tokens.ImportCustomAccount(c.Request.Context(), baseURL, key, body.Models, body.Name, body.Protocol, body.Weight, body.Concurrency, body.ID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return

@@ -2019,11 +2019,14 @@ func (s *V1Service) generateRunwayVideo(ctx context.Context, eventID string, mod
 // customAccountServes reports whether a custom (upstream) account is usable for a
 // given model id: active, not dead, has a base_url, and its meta.models list (csv
 // of model ids it serves) contains the id. An empty models list serves ALL ids.
-func customAccountServes(item model.TokenAccount, modelID string) bool {
+func customAccountServes(item model.TokenAccount, modelID, kind string) bool {
 	if item.Status != "active" || item.Dead || strings.TrimSpace(item.Value) == "" {
 		return false
 	}
 	if item.Meta == nil || strings.TrimSpace(stringValue(item.Meta["base_url"])) == "" {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(stringValue(item.Meta["protocol"])), "media") && kind != "video" {
 		return false
 	}
 	list := strings.TrimSpace(stringValue(item.Meta["models"]))
@@ -2040,14 +2043,14 @@ func customAccountServes(item model.TokenAccount, modelID string) bool {
 
 // customActive returns the custom accounts that serve modelID, ordered by weight
 // (higher first; ties by id) so heavier upstreams are preferred.
-func (s *V1Service) customActive(ctx context.Context, modelID string) ([]model.TokenAccount, error) {
+func (s *V1Service) customActive(ctx context.Context, modelID, kind string) ([]model.TokenAccount, error) {
 	items, err := s.tokens.ListByPool(ctx, "custom")
 	if err != nil {
 		return nil, err
 	}
 	var active []model.TokenAccount
 	for _, item := range items {
-		if customAccountServes(item, modelID) {
+		if customAccountServes(item, modelID, kind) {
 			active = append(active, item)
 		}
 	}
@@ -2070,7 +2073,7 @@ func accountConcurrency(item model.TokenAccount) int {
 // Otherwise the model's own provider is used.
 func (s *V1Service) effectiveProvider(ctx context.Context, modelItem *model.ModelConfig) string {
 	if s.custom != nil {
-		if active, err := s.customActive(ctx, modelItem.ID); err == nil && len(active) > 0 {
+		if active, err := s.customActive(ctx, modelItem.ID, modelItem.Type); err == nil && len(active) > 0 {
 			return "custom"
 		}
 	}
@@ -2114,7 +2117,7 @@ func (s *V1Service) generateCustomImage(ctx context.Context, eventID string, mod
 	if err != nil {
 		return nil, "", err
 	}
-	active, err := s.customActive(ctx, modelItem.ID)
+	active, err := s.customActive(ctx, modelItem.ID, "image")
 	if err != nil {
 		return nil, "", err
 	}
@@ -2184,7 +2187,7 @@ func (s *V1Service) generateCustomVideo(ctx context.Context, eventID string, mod
 	if s.custom == nil {
 		return nil, "", errors.New("custom client not configured")
 	}
-	active, err := s.customActive(ctx, modelItem.ID)
+	active, err := s.customActive(ctx, modelItem.ID, "video")
 	if err != nil {
 		return nil, "", err
 	}
@@ -2193,6 +2196,10 @@ func (s *V1Service) generateCustomVideo(ctx context.Context, eventID string, mod
 		return nil, "", ErrNoProviderAccount
 	}
 	size := upstreamVideoSize(aspectRatio, resolution)
+	refs, err := decodeReferenceImages(in.ReferenceImages, max(1, modelItem.MaxReferenceImages))
+	if err != nil {
+		return nil, "", err
+	}
 	var lastErr error
 	var videoURL string
 	busy := 0
@@ -2207,7 +2214,14 @@ func (s *V1Service) generateCustomVideo(ctx context.Context, eventID string, mod
 			_ = s.events.SetAccount(ctx, eventID, token.ID, token.AccountEmail)
 			_ = s.tokens.TouchLastUsed(ctx, token.ID)
 			baseURL := stringValue(token.Meta["base_url"])
-			d, url, genErr := s.custom.GenerateVideo(ctx, baseURL, token.Value, modelItem.ID, in.Prompt, size, durationSeconds, downloadResult)
+			var d []byte
+			var url string
+			var genErr error
+			if strings.EqualFold(strings.TrimSpace(stringValue(token.Meta["protocol"])), "media") {
+				d, url, genErr = s.custom.GenerateMediaVideo(ctx, baseURL, token.Value, modelItem.ID, in.Prompt, aspectRatio, durationSeconds, refs, downloadResult)
+			} else {
+				d, url, genErr = s.custom.GenerateVideo(ctx, baseURL, token.Value, modelItem.ID, in.Prompt, size, durationSeconds, downloadResult)
+			}
 			if genErr == nil {
 				_, _ = s.tokens.Update(ctx, "custom", token.ID, map[string]any{
 					"last_used_at": time.Now(), "success_total": gorm.Expr("success_total + 1"), "fails": 0,

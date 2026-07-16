@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { api, jsonBody } from '../api'
 import Icon from './Icon.vue'
+import SelectMenu from './SelectMenu.vue'
 
 const props = defineProps({ account: { type: Object, default: null } }) // edit mode when set
 const emit = defineEmits(['close', 'imported'])
@@ -10,6 +11,7 @@ const isEdit = !!props.account
 const name = ref(props.account?.email || '')
 const baseUrl = ref(props.account?.base_url || '')
 const key = ref('')            // edit: blank = keep existing key
+const protocol = ref(props.account?.protocol || 'openai')
 const allModels = ref([])      // existing models to pick from
 const selected = ref(props.account?.models ? String(props.account.models).split(',').map((x) => x.trim()).filter(Boolean) : [])
 const weight = ref(Number(props.account?.weight) || 0)
@@ -42,6 +44,7 @@ async function submit() {
       name: name.value.trim(),
       base_url: baseUrl.value.trim(),
       key: key.value.trim(),       // blank in edit = keep existing
+      protocol: protocol.value,
       models: selected.value.join(','),
       weight: Number(weight.value) || 0,
       concurrency: Number(concurrency.value) || 1,
@@ -65,19 +68,26 @@ async function submit() {
        @click.self="emit('close')">
     <div class="card !shadow-xl mt-14 mb-14 w-full max-w-lg">
       <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-        <h2 class="text-sm font-semibold">{{ isEdit ? '编辑上游' : '添加上游(自定义 OpenAI 兼容)' }}</h2>
+        <h2 class="text-sm font-semibold">{{ isEdit ? '编辑上游' : '添加自定义上游' }}</h2>
         <button @click="emit('close')" class="text-slate-400 hover:text-slate-700 transition-colors">
           <Icon name="close" class="w-5 h-5" />
         </button>
       </div>
       <div class="p-5 space-y-3">
         <p class="text-xs text-slate-500 leading-relaxed">
-          上游就是一个账号:填 v1 URL + Key。模型按 <strong class="text-slate-700">id 相同</strong>自动路由 ——
+          上游就是一个账号:填基础 URL + Key。模型按 <strong class="text-slate-700">id 相同</strong>自动路由 ——
           在「模型管理」加一个 provider=custom、id 与上游一致的模型即可从这个上游调用。调用<strong class="text-slate-700">直连不走代理</strong>。
         </p>
         <div>
           <label class="text-xs text-slate-500">备注名</label>
           <input v-model="name" class="field" placeholder="例如:我的中转 / xx-api" />
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">接口协议</label>
+          <SelectMenu v-model="protocol" :options="[
+            { value: 'openai', label: 'OpenAI / Sora 兼容' },
+            { value: 'media', label: '即梦媒体 API (/v1/media)' },
+          ]" />
         </div>
         <div>
           <label class="text-xs text-slate-500">v1 URL <span class="text-rose-500">*</span></label>
