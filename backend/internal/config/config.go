@@ -9,23 +9,25 @@ import (
 )
 
 type Config struct {
-	AppEnv            string
-	HTTPAddr          string
-	AppTitle          string
-	PostgresDSN       string
-	RedisAddr         string
-	RedisPassword     string
-	RedisDB           int
-	SessionCookieName string
-	CookieSecure      bool
-	SessionTTL        time.Duration
-	SessionSlideAfter time.Duration
-	CORSOrigins       []string
-	GeneratedRoot     string
-	RustFSEndpoint    string
-	RustFSBucket      string
-	RustFSAccessKey   string
-	RustFSSecretKey   string
+	AppEnv             string
+	HTTPAddr           string
+	AppTitle           string
+	PostgresDSN        string
+	RedisAddr          string
+	RedisPassword      string
+	RedisDB            int
+	SessionCookieName  string
+	CookieSecure       bool
+	SessionTTL         time.Duration
+	SessionSlideAfter  time.Duration
+	CORSOrigins        []string
+	GeneratedRoot      string
+	RustFSEndpoint     string
+	RustFSBucket       string
+	RustFSAccessKey    string
+	RustFSSecretKey    string
+	ImageURLSigningKey string
+	ImageURLTTL        time.Duration
 }
 
 func Load() (*Config, error) {
@@ -56,10 +58,15 @@ func Load() (*Config, error) {
 			// images both live here and are served (cookie-authed) via /images.
 			filepath.Join(wd, "data", "generated"),
 		)),
-		RustFSEndpoint:  envString("RUSTFS_ENDPOINT", ""),
-		RustFSBucket:    envString("RUSTFS_BUCKET", ""),
-		RustFSAccessKey: envString("RUSTFS_ACCESS_KEY", ""),
-		RustFSSecretKey: envString("RUSTFS_SECRET_KEY", ""),
+		RustFSEndpoint:     envString("RUSTFS_ENDPOINT", ""),
+		RustFSBucket:       envString("RUSTFS_BUCKET", ""),
+		RustFSAccessKey:    envString("RUSTFS_ACCESS_KEY", ""),
+		RustFSSecretKey:    envString("RUSTFS_SECRET_KEY", ""),
+		ImageURLSigningKey: envString("IMAGE_URL_SIGNING_KEY", ""),
+		ImageURLTTL:        time.Duration(envInt("IMAGE_URL_TTL_MINUTES", 60)) * time.Minute,
+	}
+	if cfg.ImageURLSigningKey == "" {
+		cfg.ImageURLSigningKey = cfg.RustFSSecretKey
 	}
 
 	return cfg, nil

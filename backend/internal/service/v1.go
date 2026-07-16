@@ -195,6 +195,7 @@ type V1ImageRequest struct {
 	// Resolution is left blank (the strict /v1 OpenAI path); the playground passes
 	// Resolution directly and ignores this.
 	Quality         string
+	ResponseFormat  string
 	AspectRatio     string
 	Resolution      string
 	N               int
@@ -516,6 +517,8 @@ func (s *V1Service) prepareImageExecutionOnce(ctx context.Context, principal *AP
 	// upload to RustFS, so there's no URL. The event is still logged (empty file)
 	// for usage; the customer logs page hides source="v1" rows.
 	noStore := source == "v1"
+	wantBase64 := strings.EqualFold(strings.TrimSpace(in.ResponseFormat), "b64_json")
+	urlOnly := noStore && !wantBase64
 	var fileURL, relativePath string
 	if !noStore {
 		fileURL, relativePath = s.allocateOutput(principal, "png", in.BaseURL)
@@ -544,7 +547,7 @@ func (s *V1Service) prepareImageExecutionOnce(ctx context.Context, principal *AP
 	var imageBytes []byte
 	switch s.effectiveImageProvider(genCtx, modelItem, resolution) {
 	case "adobe":
-		b, u, execErr := s.generateAdobeImage(genCtx, eventID, modelItem, in, aspectRatio, resolution, noStore)
+		b, u, execErr := s.generateAdobeImage(genCtx, eventID, modelItem, in, aspectRatio, resolution, urlOnly)
 		if execErr != nil {
 			_ = s.refundIfNeeded(ctx, principal, eventID, price)
 			_ = s.events.UpdateStatus(ctx, eventID, "failed", execErr.Error(), 0)
@@ -562,7 +565,7 @@ func (s *V1Service) prepareImageExecutionOnce(ctx context.Context, principal *AP
 		imageBytes = b
 		upstreamURL = u
 	case "chatgpt":
-		b, u, execErr := s.generateChatGPTImage(genCtx, eventID, modelItem, in, aspectRatio, resolution, noStore)
+		b, u, execErr := s.generateChatGPTImage(genCtx, eventID, modelItem, in, aspectRatio, resolution, urlOnly)
 		if execErr != nil {
 			_ = s.refundIfNeeded(ctx, principal, eventID, price)
 			_ = s.events.UpdateStatus(ctx, eventID, "failed", execErr.Error(), 0)
@@ -581,7 +584,7 @@ func (s *V1Service) prepareImageExecutionOnce(ctx context.Context, principal *AP
 		upstreamURL = u
 		gatedURL = true // chatgpt URL needs the account token → proxy it
 	case "leonardo":
-		b, u, execErr := s.generateLeonardoImage(genCtx, eventID, modelItem, in, aspectRatio, resolution, noStore)
+		b, u, execErr := s.generateLeonardoImage(genCtx, eventID, modelItem, in, aspectRatio, resolution, urlOnly)
 		if execErr != nil {
 			_ = s.refundIfNeeded(ctx, principal, eventID, price)
 			_ = s.events.UpdateStatus(ctx, eventID, "failed", execErr.Error(), 0)
@@ -599,7 +602,7 @@ func (s *V1Service) prepareImageExecutionOnce(ctx context.Context, principal *AP
 		imageBytes = b
 		upstreamURL = u
 	case "krea":
-		b, u, execErr := s.generateKreaImage(genCtx, eventID, modelItem, in, aspectRatio, resolution, noStore)
+		b, u, execErr := s.generateKreaImage(genCtx, eventID, modelItem, in, aspectRatio, resolution, urlOnly)
 		if execErr != nil {
 			_ = s.refundIfNeeded(ctx, principal, eventID, price)
 			_ = s.events.UpdateStatus(ctx, eventID, "failed", execErr.Error(), 0)
@@ -617,7 +620,7 @@ func (s *V1Service) prepareImageExecutionOnce(ctx context.Context, principal *AP
 		imageBytes = b
 		upstreamURL = u
 	case "imagine":
-		b, u, execErr := s.generateImagineImage(genCtx, eventID, modelItem, in, aspectRatio, resolution, noStore)
+		b, u, execErr := s.generateImagineImage(genCtx, eventID, modelItem, in, aspectRatio, resolution, urlOnly)
 		if execErr != nil {
 			_ = s.refundIfNeeded(ctx, principal, eventID, price)
 			_ = s.events.UpdateStatus(ctx, eventID, "failed", execErr.Error(), 0)
@@ -635,7 +638,7 @@ func (s *V1Service) prepareImageExecutionOnce(ctx context.Context, principal *AP
 		imageBytes = b
 		upstreamURL = u
 	case "runway":
-		b, u, execErr := s.generateRunwayImage(genCtx, eventID, modelItem, in, aspectRatio, resolution, noStore)
+		b, u, execErr := s.generateRunwayImage(genCtx, eventID, modelItem, in, aspectRatio, resolution, urlOnly)
 		if execErr != nil {
 			_ = s.refundIfNeeded(ctx, principal, eventID, price)
 			_ = s.events.UpdateStatus(ctx, eventID, "failed", execErr.Error(), 0)
@@ -653,7 +656,7 @@ func (s *V1Service) prepareImageExecutionOnce(ctx context.Context, principal *AP
 		imageBytes = b
 		upstreamURL = u
 	case "custom":
-		b, u, execErr := s.generateCustomImage(genCtx, eventID, modelItem, in, aspectRatio, resolution, noStore)
+		b, u, execErr := s.generateCustomImage(genCtx, eventID, modelItem, in, aspectRatio, resolution, urlOnly)
 		if execErr != nil {
 			_ = s.refundIfNeeded(ctx, principal, eventID, price)
 			_ = s.events.UpdateStatus(ctx, eventID, "failed", execErr.Error(), 0)
@@ -708,6 +711,20 @@ func (s *V1Service) prepareImageExecutionOnce(ctx context.Context, principal *AP
 		_ = s.maybeGrantInviteReward(ctx, principal)
 	}
 	if noStore {
+		if wantBase64 && len(imageBytes) > 0 {
+			b64 := base64.StdEncoding.EncodeToString(imageBytes)
+			return map[string]any{
+				"created":    time.Now().Unix(),
+				"data":       []map[string]any{{"b64_json": b64}},
+				"model":      modelItem.EffectiveName(),
+				"provider":   modelItem.Provider,
+				"kind":       "image",
+				"b64_json":   b64,
+				"elapsed_ms": elapsedMS,
+				"charged":    price,
+				"credits":    principalCredits(principal),
+			}, nil
+		}
 		// Prefer the provider's original URL — return it directly, no base64.
 		// (API-key requests don't support DeAI, so there's no post-processing that
 		// would invalidate the upstream URL.)
@@ -717,9 +734,11 @@ func (s *V1Service) prepareImageExecutionOnce(ctx context.Context, principal *AP
 				// Auth-gated URL (chatgpt): store it on the event and return a proxy
 				// URL that re-fetches with the account token (see OpenImageContent).
 				_ = s.events.SetFile(ctx, eventID, upstreamURL)
+				outURL = "/v1/images/" + eventID + "/content"
 				if base := strings.TrimRight(strings.TrimSpace(in.BaseURL), "/"); base != "" {
-					outURL = base + "/v1/images/" + eventID + "/content"
+					outURL = base + outURL
 				}
+				outURL = s.SignImageContentURL(outURL, eventID)
 			}
 			return map[string]any{
 				"created":    time.Now().Unix(),
@@ -1535,6 +1554,14 @@ func (s *V1Service) allocateOutput(principal *APIPrincipal, ext, baseURL string)
 	return "/images/" + relativePath, relativePath
 }
 
+func (s *V1Service) SignImageContentURL(rawURL, eventID string) string {
+	return signImageURL(rawURL, "image:"+strings.TrimSpace(eventID), s.cfg.ImageURLSigningKey, s.cfg.ImageURLTTL, time.Now())
+}
+
+func (s *V1Service) VerifyImageContentSignature(eventID, expires, signature string) bool {
+	return verifyImageURLSignature("image:"+strings.TrimSpace(eventID), expires, signature, s.cfg.ImageURLSigningKey, time.Now())
+}
+
 func (s *V1Service) logPendingEvent(ctx context.Context, kind string, modelItem *model.ModelConfig, principal *APIPrincipal, prompt, ratio, resolution, duration string, refs int, cost float64, file, source string, refFiles []string, deai bool) (string, error) {
 	event := &model.EventLog{
 		ID:         "evt-" + randomUpper(12),
@@ -1570,7 +1597,6 @@ func (s *V1Service) logPendingEvent(ctx context.Context, kind string, modelItem 
 func (s *V1Service) finishUnimplementedEvent(ctx context.Context, eventID string) error {
 	return s.events.UpdateStatus(ctx, eventID, "failed", "generation executor not implemented yet", 0)
 }
-
 
 // grokConcurrencyPerAccount is how many simultaneous generations one grok account
 // may run (grok tolerates 10, unlike the 1-per-account default elsewhere).

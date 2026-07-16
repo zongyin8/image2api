@@ -40,6 +40,7 @@ Nginx 参考配置是 `ops/nginx-tu.go2api.cc.conf`。其中 Provisioner key 是
 - 集群控制台兼容契约 `/api/*`、`/healthz`。
 - 开通管理：邮箱来源、Outlook 号池、并发注册、低水位补号、实时日志。
 - 注册结果先落入 Provisioner 队列，再幂等调用 `/admin/api/tokens/import-chatgpt-token`；失败每 60 秒重试。
+- V1 ChatGPT 图片代理 URL 使用限时 HMAC 签名，第三方客户端无需转发 API Key 即可显示；`response_format=b64_json` 也受支持。
 
 ## 服务器文件
 

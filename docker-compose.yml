@@ -41,6 +41,9 @@ services:
     environment:
       RUSTFS_ACCESS_KEY: vividai
       RUSTFS_SECRET_KEY: vividai-secret-change-me
+      # V1 image proxy URLs are signed for third-party clients. The signing key
+      # defaults to RUSTFS_SECRET_KEY; set IMAGE_URL_SIGNING_KEY to separate it.
+      IMAGE_URL_TTL_MINUTES: "60"
       RUSTFS_ADDRESS: ":9000"
       RUSTFS_VOLUMES: /data
     volumes:
