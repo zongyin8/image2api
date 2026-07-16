@@ -1,0 +1,16 @@
+[Unit]
+Description=image2api ChatGPT account provisioner
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/image2api-g2a
+EnvironmentFile=/opt/image2api-g2a/provisioner.env
+ExecStart=/opt/image2api-g2a/provisioner-venv/bin/uvicorn provisioner.app:app --host 127.0.0.1 --port 18002 --no-access-log
+Restart=on-failure
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
