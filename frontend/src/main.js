@@ -31,6 +31,7 @@ import ImagesView from './views/ImagesView.vue'
 import LogsView from './views/LogsView.vue'
 import ConfigView from './views/ConfigView.vue'
 import ShowcaseView from './views/ShowcaseView.vue'
+import ProvisionView from './views/ProvisionView.vue'
 
 const routes = [
   {
@@ -56,6 +57,7 @@ const routes = [
       { path: 'overview', component: OverviewView, meta: { label: '概览' } },
       { path: 'models',   component: ModelsView,   meta: { label: '模型管理' } },
       { path: 'accounts', component: AccountsView, meta: { label: '账号管理' } },
+      { path: 'provision', component: ProvisionView, meta: { label: '开通管理' } },
       { path: 'users',    component: UsersView,    meta: { label: '用户管理' } },
       { path: 'concurrency', component: ConcurrencyView, meta: { label: '并发分组' } },
       { path: 'banned-words', component: BannedWordsView, meta: { label: '违禁词列表' } },
