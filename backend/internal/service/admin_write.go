@@ -29,10 +29,11 @@ type AdminWriteService struct {
 	events     *repo.EventRepository
 	apiKeys    *repo.APIKeyRepository
 	tokens     *repo.TokenRepository
+	orders     *repo.OrderRepository
 	creditLogs *CreditLogService
 }
 
-func NewAdminWriteService(users *repo.UserRepository, showcase *repo.ShowcaseRepository, models *repo.ModelRepository, events *repo.EventRepository, apiKeys *repo.APIKeyRepository, tokens *repo.TokenRepository, creditLogs *CreditLogService) *AdminWriteService {
+func NewAdminWriteService(users *repo.UserRepository, showcase *repo.ShowcaseRepository, models *repo.ModelRepository, events *repo.EventRepository, apiKeys *repo.APIKeyRepository, tokens *repo.TokenRepository, orders *repo.OrderRepository, creditLogs *CreditLogService) *AdminWriteService {
 	return &AdminWriteService{
 		users:      users,
 		showcase:   showcase,
@@ -40,6 +41,7 @@ func NewAdminWriteService(users *repo.UserRepository, showcase *repo.ShowcaseRep
 		events:     events,
 		apiKeys:    apiKeys,
 		tokens:     tokens,
+		orders:     orders,
 		creditLogs: creditLogs,
 	}
 }
@@ -226,6 +228,9 @@ func (s *AdminWriteService) AdjustUserCredits(ctx context.Context, userID string
 		}
 		return nil, err
 	}
+	if delta != 0 {
+		RecordCreditOrder(ctx, s.orders, userID, delta, "admin", "管理员调整余额")
+	}
 	// 仅入账(delta>0)记流水;扣减不记(那属于出图/退款范畴)。
 	if delta > 0 {
 		s.creditLogs.LogCredit(ctx, userID, CreditLogAdmin, delta, user.Credits, "管理员调整")
@@ -240,12 +245,25 @@ func (s *AdminWriteService) SetUserCredits(ctx context.Context, userID string, v
 	if value < 0 {
 		value = 0
 	}
+	before, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
 	user, err := s.users.SetCredits(ctx, userID, value)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound
 		}
 		return nil, err
+	}
+	if delta := user.Credits - before.Credits; delta != 0 {
+		RecordCreditOrder(ctx, s.orders, userID, delta, "admin", "管理员设置余额")
+		if delta > 0 {
+			s.creditLogs.LogCredit(ctx, userID, CreditLogAdmin, delta, user.Credits, "管理员设置余额")
+		}
 	}
 	return user, nil
 }

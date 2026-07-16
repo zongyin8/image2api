@@ -15,7 +15,7 @@ import (
 	http "github.com/bogdanfinn/fhttp"
 )
 
-var innerChunkRe = regexp.MustCompile(`static/chunks/[a-zA-Z0-9_.\-/]+\.js`)
+var innerChunkRe = regexp.MustCompile(`static/chunks/[a-zA-Z0-9_.~\-/]+\.js`)
 
 func hnew(ctx context.Context, url, token string) (*http.Request, error) {
 	req, err := http.NewRequest(http.MethodGet, url, nil)

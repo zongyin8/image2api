@@ -15,14 +15,16 @@ type CDKService struct {
 	cdks       *repo.CDKRepository
 	users      *repo.UserRepository
 	settings   *repo.SiteSettingRepository
+	orders     *repo.OrderRepository
 	creditLogs *CreditLogService
 }
 
-func NewCDKService(cdks *repo.CDKRepository, users *repo.UserRepository, settings *repo.SiteSettingRepository, creditLogs *CreditLogService) *CDKService {
+func NewCDKService(cdks *repo.CDKRepository, users *repo.UserRepository, settings *repo.SiteSettingRepository, orders *repo.OrderRepository, creditLogs *CreditLogService) *CDKService {
 	return &CDKService{
 		cdks:       cdks,
 		users:      users,
 		settings:   settings,
+		orders:     orders,
 		creditLogs: creditLogs,
 	}
 }
@@ -162,6 +164,7 @@ func (s *CDKService) Redeem(ctx context.Context, userID, code string) (map[strin
 	if err != nil {
 		return nil, err
 	}
+	RecordCreditOrder(ctx, s.orders, userID, float64(item.Amount), "cdk", "兑换码 "+item.Code)
 
 	// 记一条入账流水(兑换码)。
 	s.creditLogs.LogCredit(ctx, userID, CreditLogRedeem, float64(item.Amount), updated.Credits, "兑换码 "+item.Code)
