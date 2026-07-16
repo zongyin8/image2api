@@ -105,6 +105,16 @@ func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.
 		userAuthed.GET("/credit-logs", handlers.CreditLog.List)
 	}
 
+	// Narrow machine API for the external cluster console. Keep this separate
+	// from the browser admin session and expose only the required operations.
+	clusterAdmin := engine.Group("/admin/api/cluster")
+	clusterAdmin.Use(middleware.RequireClusterAdminToken(cfg))
+	{
+		clusterAdmin.GET("/users", handlers.AdminRead.Users)
+		clusterAdmin.POST("/users/:user_id/credits", handlers.AdminWrite.AdjustUserCredits)
+		clusterAdmin.GET("/orders", handlers.Payment.AdminOrders)
+	}
+
 	authed := engine.Group("/admin/api")
 	authed.Use(middleware.RequireAdminSession(auth, cfg))
 	{

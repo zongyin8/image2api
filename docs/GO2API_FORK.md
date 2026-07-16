@@ -154,6 +154,13 @@ nginx -t
 - 状态轮询只依据 `state`；成功时优先读取 `video_url`，兼容相对或完整的 `result_url`。
 - 没有有效 API Key 时不要启用 `video-v1`，否则用户会看到不可用模型。
 
+## 集群控制台接入
+
+- 生产后端必须通过服务器环境变量设置 `CLUSTER_ADMIN_TOKEN`，真实令牌不得提交到仓库。
+- 集群控制台节点配置必须设置 `platform: image2api`，并将同一个令牌放在该节点的 `admin_key`。
+- 机器接口仅开放 `/admin/api/cluster/users`、用户积分调整和 `/admin/api/cluster/orders`，不复用浏览器管理员会话。
+- 修改令牌后必须同时重建 image2api 后端和集群控制台容器，否则用户管理会返回 401。
+
 ## 回滚
 
 - 主栈：回退到上一个 commit 标记的 backend/web 镜像。

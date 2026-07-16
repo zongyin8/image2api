@@ -20,6 +20,7 @@ type Config struct {
 	CookieSecure       bool
 	SessionTTL         time.Duration
 	SessionSlideAfter  time.Duration
+	ClusterAdminToken  string
 	CORSOrigins        []string
 	GeneratedRoot      string
 	RustFSEndpoint     string
@@ -50,6 +51,7 @@ func Load() (*Config, error) {
 		CookieSecure:      envBool("COOKIE_SECURE", false),
 		SessionTTL:        time.Duration(envInt("SESSION_TTL_HOURS", 24)) * time.Hour,
 		SessionSlideAfter: time.Duration(envInt("SESSION_SLIDE_AFTER_HOURS", 22)) * time.Hour,
+		ClusterAdminToken: envString("CLUSTER_ADMIN_TOKEN", ""),
 		CORSOrigins:       envList("CORS_ORIGINS", []string{"http://localhost:5173", "http://127.0.0.1:5173"}),
 		GeneratedRoot: filepath.Clean(envString(
 			"GENERATED_ROOT",

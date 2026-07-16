@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"net/http"
+	"strings"
 
 	"backend/internal/config"
 	"backend/internal/service"
@@ -10,6 +12,21 @@ import (
 
 const currentUserKey = "current_user"
 const currentSessionKey = "current_session"
+
+// RequireClusterAdminToken protects the narrow machine-to-machine routes used
+// by the cluster console. It is intentionally separate from browser sessions.
+func RequireClusterAdminToken(cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		expected := strings.TrimSpace(cfg.ClusterAdminToken)
+		provided := service.ParseBearer(c.GetHeader("Authorization"))
+		if expected == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) != 1 {
+			c.JSON(http.StatusUnauthorized, gin.H{"detail": "invalid cluster admin token"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
 
 func RequireSession(auth *service.AuthService, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
