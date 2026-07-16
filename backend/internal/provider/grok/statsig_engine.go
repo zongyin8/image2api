@@ -12,9 +12,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/sha512"
+	_ "embed"
 	"encoding/base64"
 	"encoding/json"
-	_ "embed"
 	"errors"
 	"fmt"
 	"io"
@@ -44,8 +44,11 @@ const locateConcurrency = 24
 var (
 	// chunkPathRe matches chunk URLs in the homepage; allChunkRefRe additionally
 	// matches the loader-manifest's lazy refs (which drop the /_next/ prefix).
-	chunkPathRe   = regexp.MustCompile(`/_next/static/chunks/[a-zA-Z0-9_.\-/]+\.js`)
-	allChunkRefRe = regexp.MustCompile(`(?:/_next/)?static/chunks/[a-zA-Z0-9_.\-/]+\.js`)
+	// The Turbopack content-hash alphabet includes '~' (e.g. 0~4v1h2zpw7n0.js) -
+	// the signer chunk is frequently one of these, so the class MUST list it or
+	// the signer is never fetched/located (403 anti-bot, static fallback goes stale).
+	chunkPathRe   = regexp.MustCompile(`/_next/static/chunks/[a-zA-Z0-9_.~\-/]+\.js`)
+	allChunkRefRe = regexp.MustCompile(`(?:/_next/)?static/chunks/[a-zA-Z0-9_.~\-/]+\.js`)
 	// goja's parser tries to fetch //# sourceMappingURL=... from disk and errors.
 	sourceMapRe = regexp.MustCompile(`(?m)//[#@]\s*sourceMappingURL=\S*`)
 
