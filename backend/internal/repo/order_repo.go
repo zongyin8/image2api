@@ -40,7 +40,7 @@ func (r *OrderRepository) ListByUser(ctx context.Context, userID, status, query 
 	}
 	if term := strings.TrimSpace(query); term != "" {
 		like := "%" + term + "%"
-		q = q.Where("(id ILIKE ? OR method ILIKE ? OR CAST(amount AS TEXT) LIKE ?)", like, like, like)
+		q = q.Where("(id ILIKE ? OR pay_type ILIKE ? OR CAST(amount AS TEXT) LIKE ?)", like, like, like)
 	}
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -69,9 +69,9 @@ func (r *OrderRepository) List(ctx context.Context, status, source, query string
 	if term := strings.TrimSpace(query); term != "" {
 		like := "%" + term + "%"
 		if len(userIDs) > 0 {
-			q = q.Where("(id ILIKE ? OR method ILIKE ? OR CAST(amount AS TEXT) LIKE ? OR user_id IN ?)", like, like, like, userIDs)
+			q = q.Where("(id ILIKE ? OR pay_type ILIKE ? OR CAST(amount AS TEXT) LIKE ? OR user_id IN ?)", like, like, like, userIDs)
 		} else {
-			q = q.Where("(id ILIKE ? OR method ILIKE ? OR CAST(amount AS TEXT) LIKE ?)", like, like, like)
+			q = q.Where("(id ILIKE ? OR pay_type ILIKE ? OR CAST(amount AS TEXT) LIKE ?)", like, like, like)
 		}
 	}
 	if err := q.Count(&total).Error; err != nil {
