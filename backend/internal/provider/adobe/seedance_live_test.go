@@ -3,6 +3,7 @@ package adobe
 import (
 	"context"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -27,16 +28,36 @@ func TestLiveSeedance2(t *testing.T) {
 	if engine != "seedance2" && engine != "seedance2-fast" {
 		t.Fatalf("unsupported ADOBE_SEEDANCE_ENGINE %q", engine)
 	}
+	ratio := strings.TrimSpace(os.Getenv("ADOBE_SEEDANCE_RATIO"))
+	if ratio == "" {
+		ratio = "16:9"
+	}
+	resolution := strings.TrimSpace(os.Getenv("ADOBE_SEEDANCE_RESOLUTION"))
+	if resolution == "" {
+		resolution = "720p"
+	}
+	duration := 4
+	if raw := strings.TrimSpace(os.Getenv("ADOBE_SEEDANCE_DURATION")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			t.Fatalf("invalid ADOBE_SEEDANCE_DURATION %q", raw)
+		}
+		duration = parsed
+	}
+	prompt := strings.TrimSpace(os.Getenv("ADOBE_SEEDANCE_PROMPT"))
+	if prompt == "" {
+		prompt = "A paper boat floating on a calm pond at sunrise, gentle camera movement"
+	}
 
 	client := NewClient("", os.Getenv("ADOBE_PROXY_URL"))
 	_, meta, err := client.GenerateVideo(
 		ctx,
 		token,
 		engine,
-		"A paper boat floating on a calm pond at sunrise, gentle camera movement",
-		"16:9",
-		4,
-		"720p",
+		prompt,
+		ratio,
+		duration,
+		resolution,
 		"",
 		"",
 		nil,

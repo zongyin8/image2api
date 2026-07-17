@@ -567,13 +567,13 @@ func (c *Client) pollImage(ctx context.Context, sess *tlsSession, token, pollURL
 			return nil, nil, readErr
 		}
 		if b := string(body); strings.Contains(b, "system under load") || strings.Contains(b, "timeout_error") {
-			return nil, nil, ErrTemporaryUpstream
+			return nil, nil, fmt.Errorf("%w (poll %d: %s)", ErrTemporaryUpstream, resp.StatusCode, clip(body, 300))
 		}
 		if isContentRejection(resp.StatusCode, string(body)) {
 			return nil, nil, fmt.Errorf("%w: %s", ErrContentRejected, clip(body, 300))
 		}
 		if resp.StatusCode == 429 || resp.StatusCode == 451 || resp.StatusCode >= 500 {
-			return nil, nil, ErrDeadUpstream
+			return nil, nil, fmt.Errorf("%w (poll %d: %s)", ErrDeadUpstream, resp.StatusCode, clip(body, 300))
 		}
 		if resp.StatusCode != 200 {
 			return nil, nil, fmt.Errorf("adobe poll failed: %d %s", resp.StatusCode, clip(body, 300))
@@ -717,6 +717,8 @@ func (c *Client) submitVideo(ctx context.Context, sess *tlsSession, token, endpo
 }
 
 func (c *Client) pollVideo(ctx context.Context, sess *tlsSession, token, pollURL string, downloadResult bool) (map[string]any, []byte, error) {
+	const maxTransientPollErrors = 5
+	transientPollErrors := 0
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, fmt.Errorf("adobe video generation timed out: %w", err)
@@ -744,7 +746,14 @@ func (c *Client) pollVideo(ctx context.Context, sess *tlsSession, token, pollURL
 
 		resp, err := sess.client.Do(req)
 		if err != nil {
-			return nil, nil, fmt.Errorf("%w: %v", ErrTemporaryUpstream, err)
+			transientPollErrors++
+			if transientPollErrors > maxTransientPollErrors {
+				return nil, nil, fmt.Errorf("%w (video poll transport after %d retries: %v)", ErrTemporaryUpstream, maxTransientPollErrors, err)
+			}
+			if err := waitContext(ctx, time.Duration(transientPollErrors)*time.Second); err != nil {
+				return nil, nil, err
+			}
+			continue
 		}
 		body, readErr := io.ReadAll(resp.Body)
 		resp.Body.Close()
@@ -755,17 +764,25 @@ func (c *Client) pollVideo(ctx context.Context, sess *tlsSession, token, pollURL
 			return nil, nil, fmt.Errorf("%w (%d %s: %s)", ErrAuth, resp.StatusCode, resp.Header.Get("x-access-error"), clip(body, 300))
 		}
 		if b := string(body); strings.Contains(b, "system under load") || strings.Contains(b, "timeout_error") {
-			return nil, nil, ErrTemporaryUpstream
+			return nil, nil, fmt.Errorf("%w (video poll %d: %s)", ErrTemporaryUpstream, resp.StatusCode, clip(body, 300))
 		}
 		if isContentRejection(resp.StatusCode, string(body)) {
 			return nil, nil, fmt.Errorf("%w: %s", ErrContentRejected, clip(body, 300))
 		}
 		if resp.StatusCode == 429 || resp.StatusCode == 451 || resp.StatusCode >= 500 {
-			return nil, nil, ErrDeadUpstream
+			transientPollErrors++
+			if transientPollErrors > maxTransientPollErrors {
+				return nil, nil, fmt.Errorf("%w (video poll %d after %d retries: %s)", ErrTemporaryUpstream, resp.StatusCode, maxTransientPollErrors, clip(body, 300))
+			}
+			if err := waitContext(ctx, time.Duration(transientPollErrors)*time.Second); err != nil {
+				return nil, nil, err
+			}
+			continue
 		}
 		if resp.StatusCode != 200 {
 			return nil, nil, fmt.Errorf("adobe video poll failed: %d %s", resp.StatusCode, clip(body, 300))
 		}
+		transientPollErrors = 0
 
 		var payload map[string]any
 		if err := json.Unmarshal(body, &payload); err != nil {
@@ -794,6 +811,17 @@ func (c *Client) pollVideo(ctx context.Context, sess *tlsSession, token, pollURL
 			return nil, nil, fmt.Errorf("adobe video job failed: %s", clip(body, 300))
 		}
 		time.Sleep(3 * time.Second)
+	}
+}
+
+func waitContext(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 
