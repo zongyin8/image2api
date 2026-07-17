@@ -607,10 +607,7 @@ func (s *AdminReadService) RecentImagesOwned(ctx context.Context, owner string, 
 	}
 	files := make([]generatedFile, 0, len(objs))
 	for _, o := range objs {
-		if isReferenceFile(o.Key) {
-			continue
-		}
-		kind := mediaKind(o.Key)
+		kind := generatedOutputKind(o.Key)
 		if kind == "" {
 			continue
 		}
@@ -713,6 +710,15 @@ func isReferenceFile(name string) bool {
 	return strings.Contains(name, "-ref-")
 }
 
+// generatedOutputKind returns the media kind only for user-visible generation
+// outputs. Derived files must not appear as separate gallery items.
+func generatedOutputKind(name string) string {
+	if isReferenceFile(name) || IsThumbKey(name) || IsLastFrameKey(name) {
+		return ""
+	}
+	return mediaKind(name)
+}
+
 // scanGeneratedFiles lists media objects from RustFS (replacing the old local
 // directory walk). Keys ARE the relative paths the rest of the app expects.
 func (s *AdminReadService) scanGeneratedFiles(ctx context.Context) ([]generatedFile, map[string]any, error) {
@@ -732,7 +738,7 @@ func (s *AdminReadService) scanGeneratedFiles(ctx context.Context) ([]generatedF
 		if IsThumbKey(o.Key) || IsLastFrameKey(o.Key) {
 			continue // thumbnails / last-frame stills are derived — only originals are listed
 		}
-		kind := mediaKind(o.Key)
+		kind := generatedOutputKind(o.Key)
 		if kind == "" {
 			continue
 		}
