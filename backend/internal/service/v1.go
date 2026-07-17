@@ -492,13 +492,9 @@ func (s *V1Service) prepareImageExecution(ctx context.Context, principal *APIPri
 }
 
 func (s *V1Service) prepareImageExecutionOnce(ctx context.Context, principal *APIPrincipal, in V1ImageRequest, source string, charge bool, forced *model.ModelConfig) (map[string]any, error) {
-	// Detach the whole execution from the request lifecycle. The frontend tracks
-	// progress by polling /jobs/mine, so a client disconnect — or an nginx/CDN
-	// gateway timeout on the slow synchronous response — must NOT cancel an
-	// in-flight generation. Binding to the request ctx meant a cancelled request
-	// (a) spun uselessly in the upstream poll until its 180s timeout and
-	// (b) silently dropped the refund + final status write, leaving the row stuck
-	// pending until the maintenance sweep mislabeled it "abandoned".
+	// Frontend jobs survive request disconnects because they are persisted and
+	// polled. API-key calls are synchronous and no-store, so their provider work
+	// follows request cancellation; durable bookkeeping still completes below.
 	//
 	// `ctx` (WithoutCancel) is durable and used for ALL bookkeeping (status /
 	// refund / cleanup) so those always land. `genCtx` is the cancellable WORK
@@ -506,6 +502,7 @@ func (s *V1Service) prepareImageExecutionOnce(ctx context.Context, principal *AP
 	// sweep can cancel it the instant it abandons the row — stopping a stuck
 	// generation from running on for minutes and surfacing a late "success" on an
 	// already-abandoned event.
+	requestCtx := ctx
 	ctx = context.WithoutCancel(ctx)
 	if source != "admin" {
 		if err := s.checkBannedPrompt(ctx, principal, in.Prompt); err != nil {
@@ -518,7 +515,7 @@ func (s *V1Service) prepareImageExecutionOnce(ctx context.Context, principal *AP
 	if in.DeAI && !s.deaiEnabled(ctx) {
 		in.DeAI = false
 	}
-	genCtx, cancel := context.WithTimeout(ctx, 8*time.Minute)
+	genCtx, cancel := context.WithTimeout(imageWorkContext(requestCtx, source), 8*time.Minute)
 	defer cancel()
 
 	// Per-user concurrency gate (画图台 + API key combined). Admin model-tests are
@@ -804,6 +801,16 @@ func (s *V1Service) prepareImageExecutionOnce(ctx context.Context, principal *AP
 		"charged":    price,
 		"credits":    principalCredits(principal),
 	}, nil
+}
+
+// Browser jobs are polled and persisted, so they survive a disconnected HTTP
+// request. API-key image calls are no-store synchronous requests: cancellation
+// must stop provider work while the durable bookkeeping context records refund.
+func imageWorkContext(requestCtx context.Context, source string) context.Context {
+	if source == "v1" {
+		return requestCtx
+	}
+	return context.WithoutCancel(requestCtx)
 }
 
 func (s *V1Service) PrepareVideoRequest(ctx context.Context, principal *APIPrincipal, in V1VideoRequest) (map[string]any, error) {
