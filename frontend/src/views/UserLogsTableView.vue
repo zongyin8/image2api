@@ -196,7 +196,7 @@ const params = (e) => {
           <col class="w-56" />     <!-- model -->
           <col />                  <!-- prompt/error -->
           <col class="w-40" />     <!-- params -->
-          <col class="w-14" />     <!-- cost -->
+          <col class="w-20" />     <!-- cost / refund -->
           <col class="w-16" />     <!-- elapsed -->
         </colgroup>
         <thead>
@@ -257,7 +257,12 @@ const params = (e) => {
                    @click.stop="copyError(e)">⚠ {{ e.error }}</div>
             </td>
             <td class="px-3 py-3 align-middle text-xs text-slate-500 tabular-nums">{{ params(e) || '—' }}<span v-if="e.deai"> · <span class="text-[#7c3aed]">去AI特征</span></span></td>
-            <td class="px-3 py-3 align-middle text-right text-xs text-slate-700 tabular-nums">{{ e.cost ? points(e.cost) : '—' }}</td>
+            <td class="px-3 py-3 align-middle text-right text-xs tabular-nums whitespace-nowrap">
+              <span v-if="e.status === 'failed' && e.cost > 0 && e.refunded" class="text-emerald-600">已退 {{ points(e.cost) }}</span>
+              <span v-else-if="e.status === 'failed' && e.cost > 0" class="text-amber-600">待退 {{ points(e.cost) }}</span>
+              <span v-else-if="e.status === 'pending' && e.cost > 0" class="text-amber-600">预扣 {{ points(e.cost) }}</span>
+              <span v-else class="text-slate-700">{{ e.cost ? points(e.cost) : '—' }}</span>
+            </td>
             <td class="px-3 py-3 align-middle text-right text-xs text-slate-500 tabular-nums">{{ e.elapsed_ms ? (e.elapsed_ms / 1000).toFixed(1) + 's' : '—' }}</td>
           </tr>
         </tbody>

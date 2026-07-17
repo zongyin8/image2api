@@ -180,6 +180,7 @@ func shapeJobEvent(item *model.EventLog, modelNames map[string]string) map[strin
 		"error":          emptyOrNil(item.Error),
 		"charged":        item.Cost,
 		"cost":           item.Cost,
+		"refunded":       item.Refunded,
 		"ts":             item.TS.Unix(),
 	}
 }

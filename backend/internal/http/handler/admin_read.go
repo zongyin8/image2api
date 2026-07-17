@@ -137,6 +137,7 @@ func (h *AdminReadHandler) Logs(c *gin.Context) {
 			"account_id": emptyStringNil(item.AccountID),
 			"account":    accountName,
 			"cost":       item.Cost,
+			"refunded":   item.Refunded,
 			"elapsed_ms": item.ElapsedMS,
 			"file":       emptyStringNil(item.File),
 			"error":      emptyStringNil(item.Error),

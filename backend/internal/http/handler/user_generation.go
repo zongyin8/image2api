@@ -317,6 +317,7 @@ func (h *UserGenerationHandler) Logs(c *gin.Context) {
 			"account_id": accountID,
 			"account":    accountName,
 			"cost":       item.Cost,
+			"refunded":   item.Refunded,
 			"elapsed_ms": item.ElapsedMS,
 			"file":       emptyStringNil(item.File),
 			"error":      emptyStringNil(item.Error),

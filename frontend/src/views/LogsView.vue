@@ -233,7 +233,7 @@ const sourcePill = (s) => ({
           <col class="w-56" />        <!-- model -->
           <col />                     <!-- prompt + error -->
           <col class="w-48" />        <!-- params -->
-          <col class="w-16" />        <!-- credits -->
+          <col class="w-20" />        <!-- credits / refund -->
           <col class="w-16" />        <!-- elapsed -->
         </colgroup>
         <thead>
@@ -331,7 +331,10 @@ const sourcePill = (s) => ({
               </template>
             </td>
             <td class="px-3 py-3.5 text-right text-xs tabular-nums align-middle whitespace-nowrap">
-              <span v-if="e.cost > 0" class="text-amber-300 font-medium">{{ e.cost }}</span>
+              <span v-if="e.status === 'failed' && e.cost > 0 && e.refunded" class="text-emerald-300 font-medium">已退 {{ e.cost }}</span>
+              <span v-else-if="e.status === 'failed' && e.cost > 0" class="text-amber-300 font-medium">待退 {{ e.cost }}</span>
+              <span v-else-if="e.status === 'pending' && e.cost > 0" class="text-amber-300 font-medium">预扣 {{ e.cost }}</span>
+              <span v-else-if="e.cost > 0" class="text-amber-300 font-medium">{{ e.cost }}</span>
               <span v-else class="text-white/25">0</span>
             </td>
             <td class="px-4 py-3.5 text-right text-xs tabular-nums align-middle whitespace-nowrap text-white/85">
