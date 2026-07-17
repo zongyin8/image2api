@@ -1028,7 +1028,7 @@ func (s *TokenService) ImportCustomAccount(ctx context.Context, baseURL, apiKey,
 	if protocol == "" {
 		protocol = "openai"
 	}
-	if protocol != "openai" && protocol != "media" {
+	if protocol != "openai" {
 		return nil, errors.New("unsupported upstream protocol")
 	}
 	// Edit mode: tokenID points at an existing custom account. base_url required;

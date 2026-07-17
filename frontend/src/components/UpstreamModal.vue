@@ -2,7 +2,6 @@
 import { ref, onMounted } from 'vue'
 import { api, jsonBody } from '../api'
 import Icon from './Icon.vue'
-import SelectMenu from './SelectMenu.vue'
 
 const props = defineProps({ account: { type: Object, default: null } }) // edit mode when set
 const emit = defineEmits(['close', 'imported'])
@@ -11,7 +10,6 @@ const isEdit = !!props.account
 const name = ref(props.account?.email || '')
 const baseUrl = ref(props.account?.base_url || '')
 const key = ref('')            // edit: blank = keep existing key
-const protocol = ref(props.account?.protocol || 'openai')
 const allModels = ref([])      // existing models to pick from
 const selected = ref(props.account?.models ? String(props.account.models).split(',').map((x) => x.trim()).filter(Boolean) : [])
 const weight = ref(Number(props.account?.weight) || 0)
@@ -44,7 +42,7 @@ async function submit() {
       name: name.value.trim(),
       base_url: baseUrl.value.trim(),
       key: key.value.trim(),       // blank in edit = keep existing
-      protocol: protocol.value,
+      protocol: 'openai',
       models: selected.value.join(','),
       weight: Number(weight.value) || 0,
       concurrency: Number(concurrency.value) || 1,
@@ -81,13 +79,6 @@ async function submit() {
         <div>
           <label class="text-xs text-slate-500">备注名</label>
           <input v-model="name" class="field" placeholder="例如:我的中转 / xx-api" />
-        </div>
-        <div>
-          <label class="text-xs text-slate-500">接口协议</label>
-          <SelectMenu v-model="protocol" :options="[
-            { value: 'openai', label: 'OpenAI / Sora 兼容' },
-            { value: 'media', label: '即梦媒体 API (/v1/media)' },
-          ]" />
         </div>
         <div>
           <label class="text-xs text-slate-500">v1 URL <span class="text-rose-500">*</span></label>

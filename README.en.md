@@ -139,9 +139,9 @@ It's more than an API proxy: it ships with **credit billing, CDK top-ups, referr
 | **Leonardo.ai** | seedream-4.5 | Image |
 | **Krea.ai** | flux-klein-2 | Image |
 | **Imagine.art** | imagine-1.5 · imagine-1.5pro | Image |
-| **Custom upstream** | OpenAI-compatible v1 endpoints · Jimeng media API `/v1/media` | Image / Video |
+| **Custom upstream** | OpenAI-compatible v1 image endpoints · Sora-compatible video endpoints | Image / Video |
 
-> Models are enabled and priced dynamically from the admin console. Custom upstreams support both OpenAI/Sora-compatible APIs and the Jimeng media task protocol.
+> Models are enabled and priced dynamically from the admin console. Custom upstreams use OpenAI/Sora-compatible APIs and route by model id.
 
 ## 🔌 OpenAI-Compatible API
 

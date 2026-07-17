@@ -147,14 +147,6 @@ nginx -t
 - 不要改回经过 Cloudflare 代理的 `https://tu.2s21.cc`，否则长耗时 4K 请求会出现 520/524。
 - 修改后从 go2api 节点验证：`curl -fsS https://img-main.2s21.cc:18443/healthz`。
 
-## 即梦媒体视频上游
-
-- 自定义上游账号的 `protocol=media` 对接 `/v1/media/upload`、`/v1/media/generate` 和 `/v1/media/status`。
-- 当前目标基础地址为 `https://shiping.djpsd.com`，模型 id 为 `video-v1`；API Key 只存数据库账号池，不写入仓库。
-- 支持文生视频和多参考图：参考图先上传，再按原顺序写入 `params.images`。
-- 状态轮询只依据 `state`；成功时优先读取 `video_url`，兼容相对或完整的 `result_url`。
-- 没有有效 API Key 时不要启用 `video-v1`，否则用户会看到不可用模型。
-
 ## 集群控制台接入
 
 - 生产后端必须通过服务器环境变量设置 `CLUSTER_ADMIN_TOKEN`，真实令牌不得提交到仓库。
