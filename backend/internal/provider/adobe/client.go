@@ -995,11 +995,19 @@ func exchangeCookieWithTLSClient(ctx context.Context, sess *tlsSession, cookie s
 	if token == "" {
 		return nil, errors.New("adobe cookie exchange missing access_token")
 	}
+	if !isAuthenticatedAdobeToken(token) {
+		return nil, errors.New("adobe cookie exchange returned guest token")
+	}
 	return &CookieExchangeResult{
 		AccessToken: token,
 		ExpiresIn:   intValue(payload["expires_in"]),
 		Raw:         payload,
 	}, nil
+}
+
+func isAuthenticatedAdobeToken(token string) bool {
+	accountID := strings.ToLower(strings.TrimSpace(ExtractAccountID(token)))
+	return accountID != "" && !strings.HasSuffix(accountID, "@guestid")
 }
 
 func buildSubmitNonce(token, prompt string) string {

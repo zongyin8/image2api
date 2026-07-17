@@ -64,3 +64,13 @@ production database so it is no longer scheduled.
    URLs. Import them through account management or production secrets only.
 4. Keep standard and fast as separate managed models so their health, pricing,
    and scheduling can be changed independently.
+
+## Account Refresh Caveat
+
+- Reject cookie exchanges whose token subject is empty or ends in `@GuestID`.
+  Such a token is a guest session and must never overwrite a working AdobeID
+  access token.
+- The production account imported on 2026-07-17 uses a verified `FF-iOS`
+  access token. Its supplied cookie only exchanged to a GuestID token, so that
+  account's refresh profile is intentionally disabled until renewable AdobeID
+  credentials are imported.
