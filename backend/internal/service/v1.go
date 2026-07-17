@@ -1854,9 +1854,22 @@ func (s *V1Service) generateAdobeVideo(ctx context.Context, eventID string, mode
 	if s.adobe == nil {
 		return nil, "", errors.New("adobe client not configured")
 	}
+	engine, upstreamModel := resolveAdobeVideoEngine(modelItem.ID)
+	adobeClient := s.adobe
 	if s.settings != nil {
-		if proxy, err := s.settings.GetValue(ctx, "proxy.url"); err == nil {
-			s.adobe.SetProxy(proxy)
+		proxyKey := "proxy.url"
+		if engine == "seedance2" || engine == "seedance2-fast" {
+			proxyKey = "proxy.adobe.url"
+		}
+		proxy, err := s.settings.GetValue(ctx, proxyKey)
+		if (err != nil || strings.TrimSpace(proxy) == "") && proxyKey != "proxy.url" {
+			proxy, err = s.settings.GetValue(ctx, "proxy.url")
+		}
+		if err == nil {
+			// Use a request-local client. Seedance has a Japan-only proxy while
+			// the other providers retain the global route; mutating the shared
+			// Adobe client here would race concurrent image/video requests.
+			adobeClient = adobe.NewClient("", proxy)
 		}
 	}
 
@@ -1890,7 +1903,6 @@ func (s *V1Service) generateAdobeVideo(ctx context.Context, eventID string, mode
 		return nil, "", err
 	}
 
-	engine, upstreamModel := resolveAdobeVideoEngine(modelItem.ID)
 	referenceMode := defaultString(strings.TrimSpace(modelItem.ReferenceMode), "frame")
 
 	// Round-robin order; fail over to the next account on auth/quota; temporary
@@ -1901,13 +1913,13 @@ func (s *V1Service) generateAdobeVideo(ctx context.Context, eventID string, mode
 	data, err := s.runPoolWithFailover(ctx, eventID, "adobe", active, "video", func(token model.TokenAccount) ([]byte, error) {
 		var blobIDs []string
 		for _, ref := range refs {
-			id, upErr := s.adobe.UploadImage(ctx, token.Value, ref, "image/png", engine)
+			id, upErr := adobeClient.UploadImage(ctx, token.Value, ref, "image/png", engine)
 			if upErr != nil {
 				return nil, upErr
 			}
 			blobIDs = append(blobIDs, id)
 		}
-		bytes, meta, genErr := s.adobe.GenerateVideo(ctx, token.Value, engine, in.Prompt, aspectRatio, durationSeconds, resolution, referenceMode, upstreamModel, blobIDs, downloadResult)
+		bytes, meta, genErr := adobeClient.GenerateVideo(ctx, token.Value, engine, in.Prompt, aspectRatio, durationSeconds, resolution, referenceMode, upstreamModel, blobIDs, downloadResult)
 		if genErr == nil {
 			videoURL = strings.TrimSpace(stringValue(meta["video_url"]))
 		}
@@ -3363,6 +3375,10 @@ func parseDurationSeconds(raw string) int {
 
 func resolveAdobeVideoEngine(modelID string) (string, string) {
 	switch strings.ToLower(strings.TrimSpace(modelID)) {
+	case "seedance-2.0", "seedance2", "seedance-2":
+		return "seedance2", ""
+	case "seedance-2.0-fast", "seedance2-fast", "seedance-2-fast":
+		return "seedance2-fast", ""
 	case "gemini-veo31", "firefly-veo31":
 		// Use the fast tier — it's the only Veo 3.1 version this account is
 		// entitled to (standard "3.1-generate" returns 403 user_not_entitled).

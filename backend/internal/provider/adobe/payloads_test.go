@@ -61,3 +61,23 @@ func TestBuildVideoPayloadSeedance2Fast(t *testing.T) {
 		t.Fatalf("generationSettings = %#v, want aspectRatio 9:16", settings)
 	}
 }
+
+func TestBuildVideoPayloadSeedance2Frames(t *testing.T) {
+	payload := BuildVideoPayload("seedance2", "test", "16:9", 4, "720p", "frame", "", []string{"first", "last", "ignored"})
+	refs, ok := payload["referenceBlobs"].([]any)
+	if !ok || len(refs) != 2 {
+		t.Fatalf("referenceBlobs = %#v, want two frames", payload["referenceBlobs"])
+	}
+	first := refs[0].(map[string]any)
+	last := refs[1].(map[string]any)
+	if first["id"] != "first" || first["usage"] != "frame" || first["order"] != 1 {
+		t.Fatalf("first frame = %#v", first)
+	}
+	if last["id"] != "last" || last["usage"] != "frame" || last["order"] != 2 {
+		t.Fatalf("last frame = %#v", last)
+	}
+	metadata := payload["generationMetadata"].(map[string]any)
+	if metadata["module"] != "image2video" {
+		t.Fatalf("generationMetadata = %#v, want image2video", metadata)
+	}
+}

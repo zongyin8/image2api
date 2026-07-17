@@ -319,7 +319,7 @@ func BuildVideoPayload(engine, prompt, aspectRatio string, durationSeconds int, 
 		}
 		// Seedance is served through Adobe's UGS model adapter. Its discovery
 		// schema carries the rendered aspect ratio separately from the size tier.
-		return map[string]any{
+		payload := map[string]any{
 			"modelId":      "seedance",
 			"modelVersion": modelVersion,
 			"prompt":       prompt,
@@ -336,6 +336,28 @@ func BuildVideoPayload(engine, prompt, aspectRatio string, durationSeconds int, 
 			},
 			"output": map[string]any{"storeInputs": true},
 		}
+		if len(blobIDs) > 0 {
+			usage := "frame"
+			limit := 2
+			if referenceMode == "style" || referenceMode == "asset" {
+				usage = "style"
+				limit = 9
+			}
+			refs := make([]any, 0, min(len(blobIDs), limit))
+			for idx, id := range blobIDs[:min(len(blobIDs), limit)] {
+				ref := map[string]any{"id": id, "usage": usage}
+				if usage == "frame" {
+					ref["order"] = idx + 1
+				}
+				refs = append(refs, ref)
+			}
+			payload["referenceBlobs"] = refs
+			payload["generationMetadata"] = map[string]any{
+				"module":    "image2video",
+				"submodule": "ff-video-generate",
+			}
+		}
+		return payload
 	case "veo31-fast", "veo31-standard":
 		modelVersion := "3.1-fast-generate"
 		if engine == "veo31-standard" {
