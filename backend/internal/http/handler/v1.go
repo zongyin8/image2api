@@ -85,6 +85,21 @@ func (h *V1Handler) ImageGenerations(c *gin.Context) {
 	c.JSON(http.StatusOK, openaiImageResponse(resp))
 }
 
+// Balance returns the current credit balance for the API key owner.
+func (h *V1Handler) Balance(c *gin.Context) {
+	principal, err := h.v1.Authenticate(c.Request.Context(), c.GetHeader("Authorization"))
+	if err != nil {
+		h.writeAuthError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"object":  "balance",
+		"balance": principal.User.Credits,
+		"unit":    "credits",
+	})
+}
+
 type chatCompletionRequest struct {
 	Model      string        `json:"model"`
 	Prompt     string        `json:"prompt"`

@@ -50,6 +50,7 @@ func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.
 	engine.GET("/health", handlers.Health.Handle)
 	engine.GET("/images/:user/:name", handlers.Images.Serve)
 	engine.GET("/v1/models", handlers.V1.Models)
+	engine.GET("/v1/balance", handlers.V1.Balance)
 	engine.POST("/v1/chat/completions", handlers.V1.ChatCompletions)
 	engine.POST("/v1/responses", handlers.V1.Responses)
 	engine.POST("/v1/images/generations", handlers.V1.ImageGenerations)
