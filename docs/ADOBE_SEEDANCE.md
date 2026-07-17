@@ -13,6 +13,8 @@ Last verified: 2026-07-17
   not require a Japan exit during live verification.
 - Both engines are implemented in the provider and exposed as managed model
   IDs `seedance-2.0` and `seedance-2.0-fast`.
+- Production exposes only 5, 10, and 15 second options for both models. Their
+  duration prices are 25, 50, and 75 points respectively.
 
 ## Verified Standard Payload
 
