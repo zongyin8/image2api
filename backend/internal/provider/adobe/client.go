@@ -74,7 +74,7 @@ func (c *Client) SetProxy(proxy string) {
 }
 
 func (c *Client) ExchangeCookie(ctx context.Context, cookie string) (*CookieExchangeResult, error) {
-	sess, err := c.newDirectTLSClient()
+	sess, err := c.newTLSClient()
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +121,7 @@ func (c *Client) UploadImage(ctx context.Context, token string, content []byte, 
 // body plus whether a failure is retryable (transport error / 429/451/5xx).
 // Auth failures (401/403) and other non-200s are not retryable.
 func (c *Client) uploadImageOnce(ctx context.Context, token string, content []byte, contentType, engine string) ([]byte, error, bool) {
-	sess, err := c.newDirectTLSClient()
+	sess, err := c.newTLSClient()
 	if err != nil {
 		return nil, err, false
 	}
@@ -266,7 +266,7 @@ func (c *Client) FetchAccountProfile(ctx context.Context, token string) (map[str
 	if token == "" {
 		return map[string]any{}, nil
 	}
-	sess, err := c.newDirectTLSClient()
+	sess, err := c.newTLSClient()
 	if err != nil {
 		return nil, err
 	}
@@ -351,7 +351,7 @@ func (c *Client) FetchCreditsBalance(ctx context.Context, token string) (map[str
 		}, nil
 	}
 
-	sess, err := c.newDirectTLSClient()
+	sess, err := c.newTLSClient()
 	if err != nil {
 		return nil, err
 	}

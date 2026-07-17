@@ -1,6 +1,10 @@
 package service
 
-import "testing"
+import (
+	"testing"
+
+	"gorm.io/datatypes"
+)
 
 func TestNormalizeAccountProxy(t *testing.T) {
 	tests := []struct {
@@ -26,5 +30,18 @@ func TestNormalizeAccountProxy(t *testing.T) {
 				t.Fatalf("got %q, want %q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestPrepareImportMeta(t *testing.T) {
+	meta, weight, err := prepareImportMeta(
+		datatypes.JSONMap{"pending_check": true, "team_id": "team-1"},
+		[]AccountImportOptions{{ProxyURL: " socks5://user:pass@example.test:1080 ", Weight: 25}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta["proxy_url"] != "socks5://user:pass@example.test:1080" || meta["team_id"] != "team-1" || weight != 25 {
+		t.Fatalf("meta=%v weight=%d", meta, weight)
 	}
 }

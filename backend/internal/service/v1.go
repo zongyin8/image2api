@@ -1889,6 +1889,9 @@ func (s *V1Service) generateAdobeVideo(ctx context.Context, eventID string, mode
 			active = append(active, item)
 		}
 	}
+	if strings.TrimSpace(in.AccountID) == "" && (engine == "seedance2" || engine == "seedance2-fast") {
+		active = seedanceCreditEligible(active)
+	}
 	active = pinTestAccount(items, active, in.AccountID)
 	if len(active) == 0 {
 		return nil, "", ErrNoProviderAccount
@@ -3467,6 +3470,19 @@ func resolveAdobeVideoEngine(modelID string) (string, string) {
 	default:
 		return "sora2", ""
 	}
+}
+
+const adobeSeedanceMinimumCredits = 360
+
+func seedanceCreditEligible(items []model.TokenAccount) []model.TokenAccount {
+	eligible := make([]model.TokenAccount, 0, len(items))
+	for _, item := range items {
+		remaining, known := jsonMapInt(item.Meta, "cached_quota_remaining")
+		if known && remaining >= adobeSeedanceMinimumCredits {
+			eligible = append(eligible, item)
+		}
+	}
+	return eligible
 }
 
 func absFloat(v float64) float64 {

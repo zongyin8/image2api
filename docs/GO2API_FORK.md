@@ -42,6 +42,7 @@ Nginx 参考配置是 `ops/nginx-tu.go2api.cc.conf`。其中 Provisioner key 是
 - 注册结果先落入 Provisioner 队列，再幂等调用 `/admin/api/tokens/import-chatgpt-token`；失败每 60 秒重试。
 - V1 ChatGPT 图片代理 URL 使用限时 HMAC 签名，第三方客户端无需转发 API Key 即可显示；`response_format=b64_json` 也受支持。
 - 账号管理支持单账号独立出口代理和多选批量修改代理、权重、状态；账号代理优先于节点全局 `proxy.url`，留空则回退全局配置。
+- “导入账号”可给整批账号预设同一代理；“添加账号”只接收一个账号。两者都会在 pending 账号启动后台校验前原子写入代理和权重，避免账号短暂直连或被提前调度。
 - Adobe Seedance 2.0 / Seedance 2.0 Fast 已接入，实测标准版和 Fast 均可不经日本代理直接调用；详细参数见 `docs/ADOBE_SEEDANCE.md`。
 
 ## 服务器文件

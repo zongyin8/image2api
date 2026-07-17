@@ -54,6 +54,8 @@ func (h *ProviderAdminHandler) ImportChatGPTToken(c *gin.Context) {
 		Value       string `json:"value"`
 		Name        string `json:"name"`
 		ID          string `json:"id"`
+		ProxyURL    string `json:"proxy_url"`
+		Weight      int    `json:"weight"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": "invalid request body"})
@@ -67,7 +69,7 @@ func (h *ProviderAdminHandler) ImportChatGPTToken(c *gin.Context) {
 	if name == "" {
 		name = body.ID
 	}
-	item, err := h.tokens.ImportChatGPTToken(c.Request.Context(), token, name)
+	item, err := h.tokens.ImportChatGPTToken(c.Request.Context(), token, name, service.AccountImportOptions{ProxyURL: body.ProxyURL, Weight: body.Weight})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return
@@ -81,6 +83,8 @@ func (h *ProviderAdminHandler) ImportRunwayToken(c *gin.Context) {
 		Value       string `json:"value"`
 		Name        string `json:"name"`
 		ID          string `json:"id"`
+		ProxyURL    string `json:"proxy_url"`
+		Weight      int    `json:"weight"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": "invalid request body"})
@@ -94,7 +98,7 @@ func (h *ProviderAdminHandler) ImportRunwayToken(c *gin.Context) {
 	if name == "" {
 		name = body.ID
 	}
-	item, err := h.tokens.ImportRunwayToken(c.Request.Context(), token, name)
+	item, err := h.tokens.ImportRunwayToken(c.Request.Context(), token, name, service.AccountImportOptions{ProxyURL: body.ProxyURL, Weight: body.Weight})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return
@@ -109,6 +113,8 @@ func (h *ProviderAdminHandler) ImportGrokToken(c *gin.Context) {
 		SSO         string `json:"sso"`
 		Name        string `json:"name"`
 		ID          string `json:"id"`
+		ProxyURL    string `json:"proxy_url"`
+		Weight      int    `json:"weight"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": "invalid request body"})
@@ -124,7 +130,7 @@ func (h *ProviderAdminHandler) ImportGrokToken(c *gin.Context) {
 	if name == "" {
 		name = body.ID
 	}
-	item, err := h.tokens.ImportGrokToken(c.Request.Context(), token, name)
+	item, err := h.tokens.ImportGrokToken(c.Request.Context(), token, name, service.AccountImportOptions{ProxyURL: body.ProxyURL, Weight: body.Weight})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return
@@ -168,10 +174,12 @@ func (h *ProviderAdminHandler) ImportCustomAccount(c *gin.Context) {
 
 func (h *ProviderAdminHandler) ImportKreaCookie(c *gin.Context) {
 	var body struct {
-		Cookie string `json:"cookie"`
-		Value  string `json:"value"`
-		Name   string `json:"name"`
-		ID     string `json:"id"`
+		Cookie   string `json:"cookie"`
+		Value    string `json:"value"`
+		Name     string `json:"name"`
+		ID       string `json:"id"`
+		ProxyURL string `json:"proxy_url"`
+		Weight   int    `json:"weight"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": "invalid request body"})
@@ -185,7 +193,7 @@ func (h *ProviderAdminHandler) ImportKreaCookie(c *gin.Context) {
 	if name == "" {
 		name = body.ID
 	}
-	item, err := h.tokens.ImportKreaCookie(c.Request.Context(), cookie, name)
+	item, err := h.tokens.ImportKreaCookie(c.Request.Context(), cookie, name, service.AccountImportOptions{ProxyURL: body.ProxyURL, Weight: body.Weight})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return
@@ -195,10 +203,12 @@ func (h *ProviderAdminHandler) ImportKreaCookie(c *gin.Context) {
 
 func (h *ProviderAdminHandler) ImportImagineToken(c *gin.Context) {
 	var body struct {
-		Cookie string `json:"cookie"`
-		Value  string `json:"value"`
-		Name   string `json:"name"`
-		ID     string `json:"id"`
+		Cookie   string `json:"cookie"`
+		Value    string `json:"value"`
+		Name     string `json:"name"`
+		ID       string `json:"id"`
+		ProxyURL string `json:"proxy_url"`
+		Weight   int    `json:"weight"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": "invalid request body"})
@@ -212,7 +222,7 @@ func (h *ProviderAdminHandler) ImportImagineToken(c *gin.Context) {
 	if name == "" {
 		name = body.ID
 	}
-	item, err := h.tokens.ImportImagineToken(c.Request.Context(), cred, name)
+	item, err := h.tokens.ImportImagineToken(c.Request.Context(), cred, name, service.AccountImportOptions{ProxyURL: body.ProxyURL, Weight: body.Weight})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return
@@ -222,10 +232,12 @@ func (h *ProviderAdminHandler) ImportImagineToken(c *gin.Context) {
 
 func (h *ProviderAdminHandler) ImportLeonardoCookie(c *gin.Context) {
 	var body struct {
-		Cookie string `json:"cookie"`
-		Value  string `json:"value"`
-		Name   string `json:"name"`
-		ID     string `json:"id"`
+		Cookie   string `json:"cookie"`
+		Value    string `json:"value"`
+		Name     string `json:"name"`
+		ID       string `json:"id"`
+		ProxyURL string `json:"proxy_url"`
+		Weight   int    `json:"weight"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": "invalid request body"})
@@ -239,7 +251,7 @@ func (h *ProviderAdminHandler) ImportLeonardoCookie(c *gin.Context) {
 	if name == "" {
 		name = body.ID
 	}
-	item, err := h.tokens.ImportLeonardoCookie(c.Request.Context(), cookie, name)
+	item, err := h.tokens.ImportLeonardoCookie(c.Request.Context(), cookie, name, service.AccountImportOptions{ProxyURL: body.ProxyURL, Weight: body.Weight})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return
@@ -249,10 +261,12 @@ func (h *ProviderAdminHandler) ImportLeonardoCookie(c *gin.Context) {
 
 func (h *ProviderAdminHandler) ImportAdobeCookie(c *gin.Context) {
 	var body struct {
-		Cookie string `json:"cookie"`
-		Value  string `json:"value"`
-		Name   string `json:"name"`
-		ID     string `json:"id"`
+		Cookie   string `json:"cookie"`
+		Value    string `json:"value"`
+		Name     string `json:"name"`
+		ID       string `json:"id"`
+		ProxyURL string `json:"proxy_url"`
+		Weight   int    `json:"weight"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": "invalid request body"})
@@ -266,7 +280,7 @@ func (h *ProviderAdminHandler) ImportAdobeCookie(c *gin.Context) {
 	if name == "" {
 		name = body.ID
 	}
-	item, profile, err := h.tokens.ImportAdobeCookie(c.Request.Context(), cookie, name)
+	item, profile, err := h.tokens.ImportAdobeCookie(c.Request.Context(), cookie, name, service.AccountImportOptions{ProxyURL: body.ProxyURL, Weight: body.Weight})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return

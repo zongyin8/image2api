@@ -13,6 +13,7 @@ const rows = ref([])
 const loading = ref(false)
 const quotaStatus = ref('')
 const showImport = ref(false)
+const showAdd = ref(false)
 const showUpstream = ref(false)
 const editingUpstream = ref(null)
 function editUpstream(a) { editingUpstream.value = a; showUpstream.value = true }
@@ -400,6 +401,9 @@ onMounted(() => { loadAccounts(); loadModelList() })
       <button @click="showImport = true" class="btn-primary">
         <Icon name="plus" class="w-3.5 h-3.5" /> 导入账号
       </button>
+      <button @click="showAdd = true" class="btn-soft">
+        <Icon name="plus" class="w-3.5 h-3.5" /> 添加账号
+      </button>
       <button @click="editingUpstream = null; showUpstream = true" class="btn-soft">
         <Icon name="plus" class="w-3.5 h-3.5" /> 添加上游
       </button>
@@ -486,7 +490,7 @@ onMounted(() => { loadAccounts(); loadModelList() })
             <td class="px-3 py-3.5 align-middle text-right text-sm tabular-nums whitespace-nowrap">
               <!-- quota column: 数字 / —  (never "未知"/"失败"/"检测中") -->
               <!-- remaining === -1 is the provider "unlimited" sentinel → show — not a scary red -1 -->
-              <span v-if="(a.type === 'openai' || a.type === 'runway' || a.type === 'leonardo' || a.type === 'krea' || a.type === 'imagine' || a.type === 'grok') && a.remaining != null && a.remaining !== -1"
+              <span v-if="(a.type === 'openai' || a.type === 'adobe' || a.type === 'runway' || a.type === 'leonardo' || a.type === 'krea' || a.type === 'imagine' || a.type === 'grok') && a.remaining != null && a.remaining !== -1"
                     class="font-mono font-semibold"
                     :class="a.remaining > 0 ? 'text-emerald-300' : 'text-rose-300'">{{ a.remaining }}{{ a.type === 'grok' ? '%' : '' }}</span>
               <span v-else class="text-white/25" :title="a._quotaError || ''">—</span>
@@ -586,6 +590,7 @@ onMounted(() => { loadAccounts(); loadModelList() })
     </div>
 
     <ImportModal v-if="showImport" @close="showImport = false" @imported="loadAccounts" />
+    <ImportModal v-if="showAdd" single @close="showAdd = false" @imported="loadAccounts" />
     <UpstreamModal v-if="showUpstream" :account="editingUpstream" @close="showUpstream = false; editingUpstream = null" @imported="loadAccounts" />
     <AccountEditModal v-if="editingAccount" :account="editingAccount" @saved="applyEdit" @close="editingAccount = null" />
     <AccountBulkEditModal v-if="showBulkEdit" :ids="[...selected]" @saved="bulkEditSaved" @close="showBulkEdit = false" />

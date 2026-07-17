@@ -59,6 +59,41 @@ type TokenService struct {
 	kreaActivating atomic.Bool
 }
 
+type AccountImportOptions struct {
+	ProxyURL string
+	Weight   int
+}
+
+func prepareImportMeta(meta datatypes.JSONMap, options []AccountImportOptions) (datatypes.JSONMap, int, error) {
+	if meta == nil {
+		meta = datatypes.JSONMap{}
+	} else {
+		meta = cloneJSONMap(meta)
+	}
+	if len(options) == 0 {
+		return meta, 0, nil
+	}
+	proxyURL, err := normalizeAccountProxy(options[0].ProxyURL)
+	if err != nil {
+		return nil, 0, err
+	}
+	weight := options[0].Weight
+	if weight < 0 || weight > 10000 {
+		return nil, 0, errors.New("weight must be between 0 and 10000")
+	}
+	if proxyURL != "" {
+		meta["proxy_url"] = proxyURL
+	}
+	return meta, weight, nil
+}
+
+func (s *TokenService) applyImportWeight(ctx context.Context, pool string, item *model.TokenAccount, weight int) (*model.TokenAccount, error) {
+	if item == nil || item.Weight == weight {
+		return item, nil
+	}
+	return s.tokens.Update(ctx, pool, item.ID, map[string]any{"weight": weight})
+}
+
 func NewTokenService(tokens *repo.TokenRepository, refresh *repo.RefreshProfileRepository, events *repo.EventRepository, settings *repo.SiteSettingRepository, adobeClient *adobe.Client, chatGPTClient *chatgpt.Client, runwayClient *runway.Client, leonardoClient *leonardo.Client, kreaClient *krea.Client, imagineClient *imagine.Client, grokClient *grok.Client) *TokenService {
 	return &TokenService{
 		tokens:   tokens,
@@ -100,6 +135,14 @@ func (s *TokenService) applyProxy(ctx context.Context) {
 	if s.grok != nil {
 		s.grok.SetProxy(proxy)
 	}
+}
+
+func (s *TokenService) accountProxy(ctx context.Context, pool, id string) string {
+	item, err := s.tokens.Get(ctx, pool, id)
+	if err != nil || item == nil {
+		return ""
+	}
+	return accountProxyURL(*item)
 }
 
 // RefreshExpiringTokens proactively renews krea/imagine sessions ~10min before
@@ -232,7 +275,7 @@ func (s *TokenService) Add(ctx context.Context, pool, value, tokenID string) (*m
 	return s.createToken(ctx, pool, tokenID, value, "active", nil)
 }
 
-func (s *TokenService) ImportChatGPTToken(ctx context.Context, accessToken, tokenID string) (*model.TokenAccount, error) {
+func (s *TokenService) ImportChatGPTToken(ctx context.Context, accessToken, tokenID string, options ...AccountImportOptions) (*model.TokenAccount, error) {
 	accessToken = strings.TrimSpace(accessToken)
 	if accessToken == "" {
 		return nil, errors.New("access_token required")
@@ -240,7 +283,10 @@ func (s *TokenService) ImportChatGPTToken(ctx context.Context, accessToken, toke
 	// Land as pending and return instantly; a background worker probes quota and
 	// flips the row active/dead (Python import_chatgpt_token). pending tokens are
 	// not schedulable — the pool only hands out status=="active".
-	meta := datatypes.JSONMap{"pending_check": true}
+	meta, weight, err := prepareImportMeta(datatypes.JSONMap{"pending_check": true}, options)
+	if err != nil {
+		return nil, err
+	}
 	info := chatgpt.ExtractAccountInfo(accessToken)
 	_, exp := parseJWTEmailExpiry(accessToken)
 	// Identity is (pool, email): reuse the existing row for this email, else mint a
@@ -283,6 +329,10 @@ func (s *TokenService) ImportChatGPTToken(ctx context.Context, accessToken, toke
 			item = updated
 		}
 	}
+	item, err = s.applyImportWeight(ctx, "chatgpt", item, weight)
+	if err != nil {
+		return nil, err
+	}
 	go s.checkPendingChatGPT(tokenID, accessToken)
 	return item, nil
 }
@@ -291,7 +341,7 @@ func (s *TokenService) ImportChatGPTToken(ctx context.Context, accessToken, toke
 // credit balance off-thread (mirrors ImportChatGPTToken). The workspace/team id
 // (= the JWT "id" claim) is stashed in meta["team_id"] so generation can send it
 // as x-runway-workspace later. Recovery time == the JWT expiry.
-func (s *TokenService) ImportRunwayToken(ctx context.Context, accessToken, tokenID string) (*model.TokenAccount, error) {
+func (s *TokenService) ImportRunwayToken(ctx context.Context, accessToken, tokenID string, options ...AccountImportOptions) (*model.TokenAccount, error) {
 	accessToken = strings.TrimSpace(strings.TrimPrefix(accessToken, "Bearer "))
 	if accessToken == "" {
 		return nil, errors.New("access_token required")
@@ -312,6 +362,10 @@ func (s *TokenService) ImportRunwayToken(ctx context.Context, accessToken, token
 	meta := datatypes.JSONMap{"pending_check": true}
 	if teamID != "" {
 		meta["team_id"] = teamID
+	}
+	meta, weight, err := prepareImportMeta(meta, options)
+	if err != nil {
+		return nil, err
 	}
 	item, err := s.createToken(ctx, "runway", tokenID, accessToken, "pending", meta)
 	if err != nil {
@@ -337,6 +391,10 @@ func (s *TokenService) ImportRunwayToken(ctx context.Context, accessToken, token
 			item = updated
 		}
 	}
+	item, err = s.applyImportWeight(ctx, "runway", item, weight)
+	if err != nil {
+		return nil, err
+	}
 	go s.checkPendingRunway(tokenID, accessToken)
 	return item, nil
 }
@@ -346,7 +404,7 @@ func (s *TokenService) ImportRunwayToken(ctx context.Context, accessToken, token
 // cookie — the bearer is derived on demand at generation time via get-session —
 // so there's no refresh profile. Lands a pending row, then the worker validates
 // the cookie + hydrates email/quota off-thread.
-func (s *TokenService) ImportLeonardoCookie(ctx context.Context, cookie, tokenID string) (*model.TokenAccount, error) {
+func (s *TokenService) ImportLeonardoCookie(ctx context.Context, cookie, tokenID string, options ...AccountImportOptions) (*model.TokenAccount, error) {
 	cookie = cleanAdobeCookie(cookie) // same paste-cleanup (JSON / "Cookie:" prefix)
 	if cookie == "" {
 		return nil, errors.New("cookie required")
@@ -357,7 +415,10 @@ func (s *TokenService) ImportLeonardoCookie(ctx context.Context, cookie, tokenID
 	if tokenID == "" {
 		tokenID = newTokenID("leonardo")
 	}
-	meta := datatypes.JSONMap{"pending_check": true}
+	meta, weight, err := prepareImportMeta(datatypes.JSONMap{"pending_check": true}, options)
+	if err != nil {
+		return nil, err
+	}
 	item, err := s.createToken(ctx, "leonardo", tokenID, cookie, "pending", meta)
 	if err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
@@ -379,6 +440,10 @@ func (s *TokenService) ImportLeonardoCookie(ctx context.Context, cookie, tokenID
 		"cached_quota_reset_after": leonardoResetAfter(""),
 	}); uerr == nil {
 		item = updated
+	}
+	item, err = s.applyImportWeight(ctx, "leonardo", item, weight)
+	if err != nil {
+		return nil, err
 	}
 	go s.checkPendingLeonardo(tokenID, cookie)
 	return item, nil
@@ -404,7 +469,11 @@ func (s *TokenService) checkPendingLeonardo(tokenID, cookie string) {
 		return
 	}
 	s.applyProxy(ctx)
-	data, err := s.leonardo.FetchCreditsBalance(ctx, cookie)
+	client := s.leonardo
+	if proxy := s.accountProxy(ctx, "leonardo", tokenID); proxy != "" {
+		client = leonardo.NewClient(proxy)
+	}
+	data, err := client.FetchCreditsBalance(ctx, cookie)
 	if err != nil {
 		if errors.Is(err, leonardo.ErrAuth) {
 			s.finishPending(ctx, "leonardo", tokenID, "disabled", true, nil)
@@ -440,7 +509,7 @@ func (s *TokenService) checkPendingLeonardo(tokenID, cookie string) {
 
 // ImportKreaCookie imports a Krea account. Like Leonardo the stored credential
 // IS the cookie (Supabase session); quota/generation forward it directly.
-func (s *TokenService) ImportKreaCookie(ctx context.Context, cookie, tokenID string) (*model.TokenAccount, error) {
+func (s *TokenService) ImportKreaCookie(ctx context.Context, cookie, tokenID string, options ...AccountImportOptions) (*model.TokenAccount, error) {
 	cookie = cleanAdobeCookie(cookie) // same paste-cleanup (JSON / "Cookie:" prefix)
 	if cookie == "" {
 		return nil, errors.New("cookie required")
@@ -458,7 +527,10 @@ func (s *TokenService) ImportKreaCookie(ctx context.Context, cookie, tokenID str
 	} else {
 		tokenID = newTokenID("krea")
 	}
-	meta := datatypes.JSONMap{"pending_check": true}
+	meta, weight, err := prepareImportMeta(datatypes.JSONMap{"pending_check": true}, options)
+	if err != nil {
+		return nil, err
+	}
 	item, err := s.createToken(ctx, "krea", tokenID, cookie, "pending", meta)
 	if err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
@@ -482,6 +554,10 @@ func (s *TokenService) ImportKreaCookie(ctx context.Context, cookie, tokenID str
 	if updated, uerr := s.tokens.Update(ctx, "krea", tokenID, seed); uerr == nil {
 		item = updated
 	}
+	item, err = s.applyImportWeight(ctx, "krea", item, weight)
+	if err != nil {
+		return nil, err
+	}
 	go s.checkPendingKrea(tokenID, cookie)
 	return item, nil
 }
@@ -504,7 +580,11 @@ func (s *TokenService) checkPendingKrea(tokenID, cookie string) {
 		return
 	}
 	s.applyProxy(ctx)
-	cookie, rerr := kreaRefreshAndPersist(ctx, s.krea, s.tokens, tokenID, cookie)
+	client := s.krea
+	if proxy := s.accountProxy(ctx, "krea", tokenID); proxy != "" {
+		client = krea.NewClient(proxy)
+	}
+	cookie, rerr := kreaRefreshAndPersist(ctx, client, s.tokens, tokenID, cookie)
 	if rerr != nil {
 		if errors.Is(rerr, krea.ErrAuth) {
 			s.finishPending(ctx, "krea", tokenID, "disabled", true, nil)
@@ -513,7 +593,7 @@ func (s *TokenService) checkPendingKrea(tokenID, cookie string) {
 		s.finishPending(ctx, "krea", tokenID, "active", false, nil)
 		return
 	}
-	data, err := s.krea.FetchCreditsBalance(ctx, cookie)
+	data, err := client.FetchCreditsBalance(ctx, cookie)
 	if err != nil {
 		if errors.Is(err, krea.ErrAuth) {
 			s.finishPending(ctx, "krea", tokenID, "disabled", true, nil)
@@ -536,7 +616,7 @@ func (s *TokenService) checkPendingKrea(tokenID, cookie string) {
 // ImportImagineToken imports an Imagine.art account. The stored credential IS the
 // JSON {"token","refreshToken"}; quota/generation forward it (refreshing the
 // access token from the refreshToken when expired).
-func (s *TokenService) ImportImagineToken(ctx context.Context, cred, tokenID string) (*model.TokenAccount, error) {
+func (s *TokenService) ImportImagineToken(ctx context.Context, cred, tokenID string, options ...AccountImportOptions) (*model.TokenAccount, error) {
 	cred = strings.TrimSpace(cred)
 	if cred == "" {
 		return nil, errors.New("credential required")
@@ -552,7 +632,10 @@ func (s *TokenService) ImportImagineToken(ctx context.Context, cred, tokenID str
 	} else {
 		tokenID = newTokenID("imagine")
 	}
-	meta := datatypes.JSONMap{"pending_check": true}
+	meta, weight, err := prepareImportMeta(datatypes.JSONMap{"pending_check": true}, options)
+	if err != nil {
+		return nil, err
+	}
 	item, err := s.createToken(ctx, "imagine", tokenID, cred, "pending", meta)
 	if err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
@@ -577,6 +660,10 @@ func (s *TokenService) ImportImagineToken(ctx context.Context, cred, tokenID str
 	if updated, uerr := s.tokens.Update(ctx, "imagine", tokenID, seed); uerr == nil {
 		item = updated
 	}
+	item, err = s.applyImportWeight(ctx, "imagine", item, weight)
+	if err != nil {
+		return nil, err
+	}
 	go s.checkPendingImagine(tokenID, cred)
 	return item, nil
 }
@@ -599,7 +686,11 @@ func (s *TokenService) checkPendingImagine(tokenID, cred string) {
 		return
 	}
 	s.applyProxy(ctx)
-	cred, rerr := imagineRefreshAndPersist(ctx, s.imagine, s.tokens, tokenID, cred)
+	client := s.imagine
+	if proxy := s.accountProxy(ctx, "imagine", tokenID); proxy != "" {
+		client = imagine.NewClient(proxy)
+	}
+	cred, rerr := imagineRefreshAndPersist(ctx, client, s.tokens, tokenID, cred)
 	if rerr != nil {
 		if errors.Is(rerr, imagine.ErrAuth) {
 			s.finishPending(ctx, "imagine", tokenID, "disabled", true, nil)
@@ -608,7 +699,7 @@ func (s *TokenService) checkPendingImagine(tokenID, cred string) {
 		s.finishPending(ctx, "imagine", tokenID, "active", false, nil)
 		return
 	}
-	data, err := s.imagine.FetchCreditsBalance(ctx, cred)
+	data, err := client.FetchCreditsBalance(ctx, cred)
 	if err != nil {
 		if errors.Is(err, imagine.ErrAuth) {
 			s.finishPending(ctx, "imagine", tokenID, "disabled", true, nil)
@@ -628,13 +719,17 @@ func (s *TokenService) checkPendingImagine(tokenID, cred string) {
 	s.finishPending(ctx, "imagine", tokenID, "active", false, quotaMeta)
 }
 
-func (s *TokenService) ImportAdobeCookie(ctx context.Context, cookie, tokenID string) (*model.TokenAccount, *model.RefreshProfile, error) {
+func (s *TokenService) ImportAdobeCookie(ctx context.Context, cookie, tokenID string, options ...AccountImportOptions) (*model.TokenAccount, *model.RefreshProfile, error) {
 	cookie = cleanAdobeCookie(cookie)
 	if cookie == "" {
 		return nil, nil, errors.New("cookie required")
 	}
 	if tokenID == "" {
 		tokenID = newTokenID("adobe")
+	}
+	meta, weight, err := prepareImportMeta(datatypes.JSONMap{"pending_check": true}, options)
+	if err != nil {
+		return nil, nil, err
 	}
 	now := time.Now()
 	// Register the cookie refresh profile up front. Push next_retry_at out a full
@@ -661,7 +756,6 @@ func (s *TokenService) ImportAdobeCookie(ctx context.Context, cookie, tokenID st
 	// schedulable — the pool only hands out status=="active". The import returns
 	// instantly; the row flips active/dead once the worker finishes the three
 	// Adobe round-trips. Mirrors Python import_adobe_cookie.
-	meta := datatypes.JSONMap{"pending_check": true}
 	item, err := s.createToken(ctx, "adobe", tokenID, "", "pending", meta)
 	if err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
@@ -675,6 +769,10 @@ func (s *TokenService) ImportAdobeCookie(ctx context.Context, cookie, tokenID st
 		} else {
 			return nil, nil, err
 		}
+	}
+	item, err = s.applyImportWeight(ctx, "adobe", item, weight)
+	if err != nil {
+		return nil, nil, err
 	}
 	go s.checkPendingAdobe(tokenID, cookie)
 	return item, profile, nil
@@ -700,7 +798,11 @@ func (s *TokenService) checkPendingAdobe(tokenID, cookie string) {
 		s.finishPending(ctx, "adobe", tokenID, "disabled", true, nil)
 		return
 	}
-	result, err := s.adobe.ExchangeCookie(ctx, cookie)
+	client := s.adobe
+	if proxy := s.accountProxy(ctx, "adobe", tokenID); proxy != "" {
+		client = adobe.NewClient("", proxy)
+	}
+	result, err := client.ExchangeCookie(ctx, cookie)
 	if err != nil {
 		s.finishPending(ctx, "adobe", tokenID, "disabled", true, nil)
 		_, _ = s.refresh.Update(ctx, tokenID, map[string]any{
@@ -722,7 +824,7 @@ func (s *TokenService) checkPendingAdobe(tokenID, cookie string) {
 	_, _ = s.tokens.Update(ctx, "adobe", tokenID, seed)
 
 	quotaMeta := map[string]any{}
-	if cb, e := s.adobe.FetchCreditsBalance(ctx, result.AccessToken); e == nil {
+	if cb, e := client.FetchCreditsBalance(ctx, result.AccessToken); e == nil {
 		if ra := strings.TrimSpace(stringValue(cb["available_until"])); ra != "" {
 			_, _ = s.tokens.Update(ctx, "adobe", tokenID, map[string]any{"cached_quota_reset_after": ra})
 		}
@@ -731,7 +833,7 @@ func (s *TokenService) checkPendingAdobe(tokenID, cookie string) {
 			quotaMeta["cached_quota_remaining"] = rem
 		}
 	}
-	if prof, e := s.adobe.FetchAccountProfile(ctx, result.AccessToken); e == nil {
+	if prof, e := client.FetchAccountProfile(ctx, result.AccessToken); e == nil {
 		p := map[string]any{}
 		if em := strings.TrimSpace(stringValue(prof["email"])); em != "" {
 			p["account_email"] = em
@@ -772,7 +874,11 @@ func (s *TokenService) checkPendingChatGPT(tokenID, accessToken string) {
 		s.finishPending(ctx, "chatgpt", tokenID, "active", false, nil)
 		return
 	}
-	data, err := s.chatgpt.FetchImageQuota(ctx, accessToken)
+	client := s.chatgpt
+	if proxy := s.accountProxy(ctx, "chatgpt", tokenID); proxy != "" {
+		client = chatgpt.NewClient(proxy)
+	}
+	data, err := client.FetchImageQuota(ctx, accessToken)
 	if err != nil {
 		// network/proxy error — benefit of the doubt, activate.
 		s.finishPending(ctx, "chatgpt", tokenID, "active", false, nil)
@@ -837,7 +943,11 @@ func (s *TokenService) checkPendingRunway(tokenID, accessToken string) {
 		s.finishPending(ctx, "runway", tokenID, "active", false, nil)
 		return
 	}
-	data, err := s.runway.FetchCreditsBalance(ctx, accessToken)
+	client := s.runway
+	if proxy := s.accountProxy(ctx, "runway", tokenID); proxy != "" {
+		client = runway.NewClient(proxy)
+	}
+	data, err := client.FetchCreditsBalance(ctx, accessToken)
 	if err != nil {
 		if errors.Is(err, runway.ErrAuth) {
 			s.finishPending(ctx, "runway", tokenID, "disabled", true, nil)
@@ -865,7 +975,7 @@ func (s *TokenService) checkPendingRunway(tokenID, accessToken string) {
 // session_id) as a pending account and probes its credit balance off-thread.
 // Identity is the session id (grok sso has no email/exp claim). No refresh: a
 // dead session just dies (失效就失效).
-func (s *TokenService) ImportGrokToken(ctx context.Context, ssoToken, tokenID string) (*model.TokenAccount, error) {
+func (s *TokenService) ImportGrokToken(ctx context.Context, ssoToken, tokenID string, options ...AccountImportOptions) (*model.TokenAccount, error) {
 	ssoToken = strings.TrimSpace(strings.TrimPrefix(ssoToken, "Bearer "))
 	ssoToken = strings.TrimPrefix(ssoToken, "sso=")
 	if ssoToken == "" {
@@ -887,6 +997,10 @@ func (s *TokenService) ImportGrokToken(ctx context.Context, ssoToken, tokenID st
 	if sid != "" {
 		meta["session_id"] = sid
 	}
+	meta, weight, err := prepareImportMeta(meta, options)
+	if err != nil {
+		return nil, err
+	}
 	item, err := s.createToken(ctx, "grok", tokenID, ssoToken, "pending", meta)
 	if err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
@@ -898,6 +1012,10 @@ func (s *TokenService) ImportGrokToken(ctx context.Context, ssoToken, tokenID st
 		} else {
 			return nil, err
 		}
+	}
+	item, err = s.applyImportWeight(ctx, "grok", item, weight)
+	if err != nil {
+		return nil, err
 	}
 	go s.checkPendingGrok(tokenID, ssoToken)
 	return item, nil
@@ -919,10 +1037,14 @@ func (s *TokenService) checkPendingGrok(tokenID, ssoToken string) {
 		return
 	}
 	s.applyProxy(ctx)
+	client := s.grok
+	if proxy := s.accountProxy(ctx, "grok", tokenID); proxy != "" {
+		client = grok.NewClient(proxy)
+	}
 	// Validate the session first: a dead sso answers 200 {"status":"unauthenticated"},
 	// which FetchSession now maps to ErrAuth → disable. Also backfill the email if
 	// import couldn't resolve it (empty account_email currently shows the session id).
-	if email, _, serr := s.grok.FetchSession(ctx, ssoToken); serr != nil {
+	if email, _, serr := client.FetchSession(ctx, ssoToken); serr != nil {
 		if errors.Is(serr, grok.ErrAuth) {
 			s.finishPending(ctx, "grok", tokenID, "disabled", true, nil)
 			return
@@ -930,7 +1052,7 @@ func (s *TokenService) checkPendingGrok(tokenID, ssoToken string) {
 	} else if strings.TrimSpace(email) != "" {
 		_, _ = s.tokens.Update(ctx, "grok", tokenID, map[string]any{"account_email": strings.TrimSpace(email)})
 	}
-	data, err := s.grok.FetchCreditsBalance(ctx, ssoToken)
+	data, err := client.FetchCreditsBalance(ctx, ssoToken)
 	if err != nil {
 		if errors.Is(err, grok.ErrAuth) {
 			s.finishPending(ctx, "grok", tokenID, "disabled", true, nil)
