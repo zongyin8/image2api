@@ -292,10 +292,10 @@ func BuildVideoPayload(engine, prompt, aspectRatio string, durationSeconds int, 
 			"prompt":                     prompt,
 			"seeds":                      []int{seedVal},
 			"sizes":                      []any{map[string]any{"width": w, "height": h, "numFrames": frames}},
-			"videoSettings":             map[string]any{},
-			"locale":                    "en-US",
-			"generationMetadata":        map[string]any{"module": "text2video", "submodule": "ff-video-generate"},
-			"output":                    map[string]any{"storeInputs": true},
+			"videoSettings":              map[string]any{},
+			"locale":                     "en-US",
+			"generationMetadata":         map[string]any{"module": "text2video", "submodule": "ff-video-generate"},
+			"output":                     map[string]any{"storeInputs": true},
 		}
 		if len(blobIDs) > 0 {
 			conds := make([]any, 0, 2)
@@ -312,6 +312,30 @@ func BuildVideoPayload(engine, prompt, aspectRatio string, durationSeconds int, 
 			payload["image"] = map[string]any{"conditions": conds}
 		}
 		return payload
+	case "seedance2", "seedance2-fast":
+		modelVersion := "seedance_2.0"
+		if engine == "seedance2-fast" {
+			modelVersion = "seedance_2.0_fast"
+		}
+		// Seedance is served through Adobe's UGS model adapter. Its discovery
+		// schema carries the rendered aspect ratio separately from the size tier.
+		return map[string]any{
+			"modelId":      "seedance",
+			"modelVersion": modelVersion,
+			"prompt":       prompt,
+			"seeds":        []int{seedVal},
+			"size":         seedanceVideoSize(resolution),
+			"generationSettings": map[string]any{
+				"aspectRatio": aspectRatio,
+			},
+			"generateAudio": false,
+			"duration":      durationSeconds,
+			"generationMetadata": map[string]any{
+				"module":    "text2video",
+				"submodule": "ff-video-generate",
+			},
+			"output": map[string]any{"storeInputs": true},
+		}
 	case "veo31-fast", "veo31-standard":
 		modelVersion := "3.1-fast-generate"
 		if engine == "veo31-standard" {
@@ -415,6 +439,17 @@ func BuildVideoPayload(engine, prompt, aspectRatio string, durationSeconds int, 
 			payload["referenceFrames"] = []any{map[string]any{"localBlobRef": firstID}, nil}
 		}
 		return payload
+	}
+}
+
+func seedanceVideoSize(resolution string) map[string]any {
+	switch strings.ToLower(strings.TrimSpace(resolution)) {
+	case "1080p":
+		return map[string]any{"width": 1920, "height": 1080}
+	case "480p":
+		return map[string]any{"width": 640, "height": 480}
+	default:
+		return map[string]any{"width": 1280, "height": 720}
 	}
 }
 

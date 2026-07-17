@@ -683,13 +683,14 @@ func (c *Client) submitVideo(ctx context.Context, sess *tlsSession, token, endpo
 	if isContentRejection(resp.StatusCode, string(respBody)) {
 		return respBody, "", ErrContentRejected
 	}
-	if resp.StatusCode == 408 || resp.StatusCode == 429 || resp.StatusCode == 451 || resp.StatusCode >= 500 {
-		return respBody, "", ErrDeadUpstream
-	}
-	// "system under load" / timeout_error = adobe overload — treat as a temporary
-	// error so the tempFailover policy moves to the next account (same as the image path).
+	// Adobe can report provider overload as HTTP 408. Classify the body before
+	// the generic 4xx/5xx branch so a transient Seedance/image outage does not
+	// penalize or disable a healthy account.
 	if b := string(respBody); strings.Contains(b, "system under load") || strings.Contains(b, "timeout_error") {
-		return respBody, "", ErrTemporaryUpstream
+		return respBody, "", fmt.Errorf("%w (%d: %s)", ErrTemporaryUpstream, resp.StatusCode, clip(respBody, 300))
+	}
+	if resp.StatusCode == 408 || resp.StatusCode == 429 || resp.StatusCode == 451 || resp.StatusCode >= 500 {
+		return respBody, "", fmt.Errorf("%w (%d: %s)", ErrDeadUpstream, resp.StatusCode, clip(respBody, 300))
 	}
 	if resp.StatusCode != 200 {
 		return respBody, "", fmt.Errorf("video submit rejected: %d %s", resp.StatusCode, clip(respBody, 300))
