@@ -33,7 +33,7 @@ function applyEdit(payload) {
   if (payload.concurrency != null) row.concurrency = payload.concurrency
 }
 
-const typeFilter = ref('')      // '' | 'openai' | 'adobe' | 'runway' | 'leonardo'
+const typeFilter = ref('')      // '' | provider pool, including 'custom'
 const statusFilter = ref('')    // '' | 'active' | 'quota' | 'disabled'
 const search = ref('')
 
@@ -73,8 +73,10 @@ function typePill(t) {
     leonardo: 'bg-amber-500/10 text-amber-300 ring-amber-400/30',
     krea: 'bg-sky-500/10 text-sky-300 ring-sky-400/30',
     imagine: 'bg-teal-500/10 text-teal-300 ring-teal-400/30',
+    custom: 'bg-fuchsia-500/10 text-fuchsia-300 ring-fuchsia-400/30',
   }[t] || 'bg-white/[0.06] text-white/70 ring-white/15'
 }
+const TYPE_LABEL = { custom: '自定义上游' }
 const STATUS_LABEL = { active: '正常', quota: '额度耗尽', disabled: '已禁用', pending: '检测中' }
 
 const filtered = computed(() => {
@@ -355,6 +357,9 @@ onMounted(() => { loadAccounts(); loadModelList() })
         <button @click="setFilter(() => typeFilter = 'grok')" class="fp" :class="typeFilter === 'grok' && 'fp-on'">
           <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>Grok
         </button>
+        <button @click="setFilter(() => typeFilter = 'custom')" class="fp" :class="typeFilter === 'custom' && 'fp-fuchsia'">
+          <span class="w-1.5 h-1.5 rounded-full bg-fuchsia-400"></span>自定义上游
+        </button>
       </div>
       <div class="w-px h-5 bg-white/10"></div>
       <div class="flex items-center gap-1">
@@ -461,7 +466,7 @@ onMounted(() => { loadAccounts(); loadModelList() })
             <!-- type -->
             <td class="px-3 py-3.5 align-middle">
               <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ring-1 whitespace-nowrap"
-                    :class="typePill(a.type)">{{ a.type }}</span>
+                    :class="typePill(a.type)">{{ TYPE_LABEL[a.type] || a.type }}</span>
             </td>
             <!-- remaining -->
             <td class="px-3 py-3.5 align-middle text-right text-sm tabular-nums whitespace-nowrap">
