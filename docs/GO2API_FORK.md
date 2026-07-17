@@ -135,6 +135,7 @@ nginx -t
 - 管理后台账号数量、用户、积分、订单和日志正常。
 - “开通管理”能读取配置、邮箱池统计和 image2api 当前可用账号数。
 - `/images/` 返回 RustFS 中的新图片，不访问 `/opt/gpt`。
+- 旧移动客户端使用的 `POST /v1/chat/completions` 生图兼容入口可用，流式请求每 10 秒发送保活。
 - Console shim 的账号、日志、图片和主机指标正常。
 - 最近日志没有 `no async marker` 误失败回归。
 

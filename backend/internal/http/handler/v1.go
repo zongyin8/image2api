@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"backend/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type V1Handler struct {
@@ -72,6 +74,7 @@ func (h *V1Handler) ImageGenerations(c *gin.Context) {
 		Prompt:         body.Prompt,
 		N:              body.N,
 		Size:           body.Size,
+		Quality:        body.Quality,
 		ResponseFormat: body.ResponseFormat,
 		BaseURL:        requestBaseURL(c),
 	})
@@ -80,6 +83,247 @@ func (h *V1Handler) ImageGenerations(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, openaiImageResponse(resp))
+}
+
+type chatCompletionRequest struct {
+	Model      string        `json:"model"`
+	Prompt     string        `json:"prompt"`
+	Messages   []chatMessage `json:"messages"`
+	Modalities []string      `json:"modalities"`
+	N          int           `json:"n"`
+	Size       string        `json:"size"`
+	Quality    string        `json:"quality"`
+	Stream     bool          `json:"stream"`
+}
+
+type chatMessage struct {
+	Role    string          `json:"role"`
+	Content json.RawMessage `json:"content"`
+}
+
+// ChatCompletions preserves the legacy image-via-chat contract used by older
+// mobile clients. image2api does not provide general text chat through this
+// route; the selected model must resolve to an enabled image model.
+func (h *V1Handler) ChatCompletions(c *gin.Context) {
+	principal, err := h.v1.Authenticate(c.Request.Context(), c.GetHeader("Authorization"))
+	if err != nil {
+		h.writeAuthError(c, err)
+		return
+	}
+
+	var body chatCompletionRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "invalid request body"})
+		return
+	}
+	prompt, refs := chatImageInputs(body)
+	if prompt == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "messages or prompt is required"})
+		return
+	}
+	if strings.TrimSpace(body.Model) == "" {
+		body.Model = "gpt-image-2"
+	}
+	if body.N == 0 {
+		body.N = 1
+	}
+	if body.N < 1 || body.N > 4 {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "n must be between 1 and 4"})
+		return
+	}
+
+	request := service.V1ImageRequest{
+		Model:           body.Model,
+		Prompt:          prompt,
+		N:               body.N,
+		Size:            body.Size,
+		Quality:         body.Quality,
+		ResponseFormat:  "b64_json",
+		ReferenceImages: refs,
+		BaseURL:         requestBaseURL(c),
+	}
+	if !body.Stream {
+		resp, genErr := h.v1.PrepareImageRequest(c.Request.Context(), principal, request)
+		if genErr != nil {
+			h.writeV1Error(c, genErr, resp)
+			return
+		}
+		c.JSON(http.StatusOK, chatCompletionResponse(body.Model, chatImageMarkdown(resp)))
+		return
+	}
+
+	h.streamChatImage(c, principal, request)
+}
+
+type chatImageResult struct {
+	response map[string]any
+	err      error
+}
+
+func (h *V1Handler) streamChatImage(c *gin.Context, principal *service.APIPrincipal, request service.V1ImageRequest) {
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Status(http.StatusOK)
+
+	id := "chatcmpl-" + uuid.NewString()
+	created := time.Now().Unix()
+	writeChatSSE(c, chatCompletionChunk(id, request.Model, created, gin.H{"role": "assistant", "content": ""}, nil))
+	c.Writer.Flush()
+
+	ctx := c.Request.Context()
+	resultCh := make(chan chatImageResult, 1)
+	go func() {
+		resp, err := h.v1.PrepareImageRequest(ctx, principal, request)
+		resultCh <- chatImageResult{response: resp, err: err}
+	}()
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			_, _ = io.WriteString(c.Writer, ": keep-alive\n\n")
+			c.Writer.Flush()
+		case result := <-resultCh:
+			if result.err != nil {
+				writeChatSSE(c, gin.H{"error": gin.H{"message": result.err.Error(), "type": "image_generation_error"}})
+			} else {
+				writeChatSSE(c, chatCompletionChunk(id, request.Model, created, gin.H{"content": chatImageMarkdown(result.response)}, nil))
+				finish := "stop"
+				writeChatSSE(c, chatCompletionChunk(id, request.Model, created, gin.H{}, &finish))
+			}
+			_, _ = io.WriteString(c.Writer, "data: [DONE]\n\n")
+			c.Writer.Flush()
+			return
+		}
+	}
+}
+
+func writeChatSSE(c *gin.Context, value any) {
+	payload, _ := json.Marshal(value)
+	_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", payload)
+}
+
+func chatCompletionChunk(id, model string, created int64, delta gin.H, finish *string) gin.H {
+	var finishReason any
+	if finish != nil {
+		finishReason = *finish
+	}
+	return gin.H{
+		"id": id, "object": "chat.completion.chunk", "created": created, "model": model,
+		"choices": []gin.H{{"index": 0, "delta": delta, "finish_reason": finishReason}},
+	}
+}
+
+func chatCompletionResponse(model, content string) gin.H {
+	return gin.H{
+		"id": "chatcmpl-" + uuid.NewString(), "object": "chat.completion",
+		"created": time.Now().Unix(), "model": model,
+		"choices": []gin.H{{
+			"index": 0, "message": gin.H{"role": "assistant", "content": content}, "finish_reason": "stop",
+		}},
+		"usage": gin.H{"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+	}
+}
+
+func chatImageInputs(body chatCompletionRequest) (string, []string) {
+	prompts := make([]string, 0, len(body.Messages)+1)
+	directPrompt := strings.TrimSpace(body.Prompt)
+	if directPrompt != "" {
+		prompt := directPrompt
+		prompts = append(prompts, prompt)
+	}
+	refs := []string{}
+	for _, message := range body.Messages {
+		if !strings.EqualFold(strings.TrimSpace(message.Role), "user") {
+			continue
+		}
+		var text string
+		if json.Unmarshal(message.Content, &text) == nil {
+			if text = strings.TrimSpace(text); directPrompt == "" && text != "" {
+				prompts = append(prompts, text)
+			}
+			continue
+		}
+		var parts []map[string]any
+		if json.Unmarshal(message.Content, &parts) != nil {
+			continue
+		}
+		for _, part := range parts {
+			typ := strings.ToLower(strings.TrimSpace(fmt.Sprint(part["type"])))
+			switch typ {
+			case "text", "input_text":
+				text := strings.TrimSpace(firstString(part["text"], part["input_text"]))
+				if directPrompt == "" && text != "" {
+					prompts = append(prompts, text)
+				}
+			case "image_url", "input_image", "image":
+				if ref := dataURLBase64(firstString(part["image_url"], part["url"], part["image"])); ref != "" {
+					refs = append(refs, ref)
+				}
+			}
+		}
+	}
+	return strings.Join(prompts, "\n"), refs
+}
+
+func firstString(values ...any) string {
+	for _, value := range values {
+		switch v := value.(type) {
+		case string:
+			if strings.TrimSpace(v) != "" {
+				return v
+			}
+		case map[string]any:
+			if text := firstString(v["url"], v["image_url"], v["data"]); text != "" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func dataURLBase64(value string) string {
+	value = strings.TrimSpace(value)
+	if !strings.HasPrefix(strings.ToLower(value), "data:image/") {
+		return ""
+	}
+	header, data, ok := strings.Cut(value, ",")
+	if !ok || !strings.Contains(strings.ToLower(header), ";base64") {
+		return ""
+	}
+	return strings.TrimSpace(data)
+}
+
+func chatImageMarkdown(response map[string]any) string {
+	items := make([]map[string]any, 0, 1)
+	switch data := response["data"].(type) {
+	case []map[string]any:
+		items = append(items, data...)
+	case []any:
+		for _, raw := range data {
+			if item, ok := raw.(map[string]any); ok {
+				items = append(items, item)
+			}
+		}
+	}
+	markdown := make([]string, 0, len(items))
+	for i, item := range items {
+		if b64 := strings.TrimSpace(fmt.Sprint(item["b64_json"])); b64 != "" && b64 != "<nil>" {
+			markdown = append(markdown, fmt.Sprintf("![image_%d](data:image/png;base64,%s)", i+1, b64))
+			continue
+		}
+		if url := strings.TrimSpace(fmt.Sprint(item["url"])); url != "" && url != "<nil>" {
+			markdown = append(markdown, fmt.Sprintf("![image_%d](%s)", i+1, url))
+		}
+	}
+	if len(markdown) == 0 {
+		return "Image generation completed."
+	}
+	return strings.Join(markdown, "\n\n")
 }
 
 // ImageEdits — OpenAI POST /v1/images/edits (image-to-image). multipart/form-data
