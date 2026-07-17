@@ -14,6 +14,7 @@ const allModels = ref([])      // existing models to pick from
 const selected = ref(props.account?.models ? String(props.account.models).split(',').map((x) => x.trim()).filter(Boolean) : [])
 const weight = ref(Number(props.account?.weight) || 0)
 const concurrency = ref(Number(props.account?.concurrency) || 1)
+const proxyURL = ref(props.account?.proxy_url || '')
 const status = ref('')
 const isError = ref(false)
 const submitting = ref(false)
@@ -46,6 +47,7 @@ async function submit() {
       models: selected.value.join(','),
       weight: Number(weight.value) || 0,
       concurrency: Number(concurrency.value) || 1,
+      proxy_url: proxyURL.value.trim(),
     }))
     if (r.ok) {
       status.value = isEdit ? '✓ 已保存' : '✓ 已添加上游'; emit('imported')
@@ -74,7 +76,7 @@ async function submit() {
       <div class="p-5 space-y-3">
         <p class="text-xs text-slate-500 leading-relaxed">
           上游就是一个账号:填基础 URL + Key。模型按 <strong class="text-slate-700">id 相同</strong>自动路由 ——
-          在「模型管理」加一个 provider=custom、id 与上游一致的模型即可从这个上游调用。调用<strong class="text-slate-700">直连不走代理</strong>。
+          在「模型管理」加一个 provider=custom、id 与上游一致的模型即可从这个上游调用。代理留空时直连。
         </p>
         <div>
           <label class="text-xs text-slate-500">备注名</label>
@@ -87,6 +89,10 @@ async function submit() {
         <div>
           <label class="text-xs text-slate-500">Key <span v-if="!isEdit" class="text-rose-500">*</span><span v-else class="text-white/40">(留空=不改)</span></label>
           <input v-model="key" class="field font-mono text-xs" :placeholder="isEdit ? '留空保持原 key' : 'sk-...'" />
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">账号代理 <span class="text-slate-400">(可选，留空直连)</span></label>
+          <input v-model="proxyURL" class="field font-mono text-xs" placeholder="socks5://user:pass@host:port" />
         </div>
         <div>
           <div class="flex items-center justify-between mb-1.5">

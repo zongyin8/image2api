@@ -1,8 +1,8 @@
 // Package custom implements a generic OpenAI-compatible upstream client. A
 // "custom" model forwards generation to any OpenAI-compatible API: the upstream
 // base_url + api_key live on a custom account (pool="custom"), the upstream model
-// name on the model config (UpstreamModel). Calls go DIRECT (no tls-client, no
-// proxy) — the upstream is a normal API with no anti-bot.
+// name on the model config (UpstreamModel). Calls are direct by default, with an
+// optional per-account proxy supplied by the scheduler.
 package custom
 
 import (
@@ -25,9 +25,19 @@ var (
 	ErrTemporaryUpstream = errors.New("custom upstream temporary error")
 )
 
-type Client struct{}
+type Client struct {
+	http *http.Client
+}
 
-func NewClient() *Client { return &Client{} }
+func NewClient(proxy ...string) *Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if len(proxy) > 0 && strings.TrimSpace(proxy[0]) != "" {
+		if parsed, err := url.Parse(strings.TrimSpace(proxy[0])); err == nil {
+			transport.Proxy = http.ProxyURL(parsed)
+		}
+	}
+	return &Client{http: &http.Client{Transport: transport, Timeout: 10 * time.Minute}}
+}
 
 // sanitizeErr strips the upstream URL/host from a network error so a user's
 // private upstream URL never leaks into the event log / API response.
@@ -55,7 +65,12 @@ func sanitizeErr(err error) string {
 	return "upstream request failed"
 }
 
-func httpClient() *http.Client { return &http.Client{Timeout: 10 * time.Minute} }
+func (c *Client) httpClient() *http.Client {
+	if c != nil && c.http != nil {
+		return c.http
+	}
+	return &http.Client{Timeout: 10 * time.Minute}
+}
 
 // GenerateImage calls the upstream OpenAI image API. With reference images it
 // uses /v1/images/edits (multipart); otherwise /v1/images/generations. Returns
@@ -108,7 +123,7 @@ func (c *Client) GenerateImage(ctx context.Context, baseURL, apiKey, model, prom
 	req = req.WithContext(ctx)
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	resp, err := httpClient().Do(req)
+	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		return nil, "", fmt.Errorf("%w: %s", ErrTemporaryUpstream, sanitizeErr(err))
 	}
@@ -117,7 +132,7 @@ func (c *Client) GenerateImage(ctx context.Context, baseURL, apiKey, model, prom
 	if e := mapStatus(resp.StatusCode, body); e != nil {
 		return nil, "", e
 	}
-	return imageFromResponse(ctx, body, downloadResult)
+	return imageFromResponse(ctx, body, downloadResult, c.httpClient())
 }
 
 // GenerateVideo drives the upstream Sora-style async video API:
@@ -197,7 +212,7 @@ func (c *Client) doJSON(ctx context.Context, method, url, apiKey string, body []
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := httpClient().Do(req)
+	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrTemporaryUpstream, sanitizeErr(err))
 	}
@@ -220,7 +235,7 @@ func (c *Client) download(ctx context.Context, url, apiKey string) ([]byte, erro
 	req, _ := http.NewRequest(http.MethodGet, url, nil)
 	req = req.WithContext(ctx)
 	req.Header.Set("Authorization", "Bearer "+apiKey)
-	resp, err := httpClient().Do(req)
+	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrTemporaryUpstream, sanitizeErr(err))
 	}
@@ -244,7 +259,7 @@ func (c *Client) download(ctx context.Context, url, apiKey string) ([]byte, erro
 // We always request response_format=url, so the response must carry a URL — a
 // base64-only response is treated as an error (no base64 pass-through). With
 // downloadResult=false the URL is returned directly (no download).
-func imageFromResponse(ctx context.Context, body []byte, downloadResult bool) ([]byte, string, error) {
+func imageFromResponse(ctx context.Context, body []byte, downloadResult bool, client *http.Client) ([]byte, string, error) {
 	var out struct {
 		Data []struct {
 			URL string `json:"url"`
@@ -261,7 +276,7 @@ func imageFromResponse(ctx context.Context, body []byte, downloadResult bool) ([
 		return nil, url, nil
 	}
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	resp, err := httpClient().Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, "", fmt.Errorf("%w: %s", ErrTemporaryUpstream, sanitizeErr(err))
 	}

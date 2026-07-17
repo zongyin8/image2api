@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -1120,14 +1121,18 @@ func (s *V1Service) OpenVideoContent(ctx context.Context, principal *APIPrincipa
 		if acct == nil || strings.TrimSpace(acct.Value) == "" {
 			return nil, "", fmt.Errorf("%w: grok account no longer available for this video", ErrProviderTemporary)
 		}
-		return s.grok.OpenAsset(ctx, acct.Value, ev.File)
+		client := s.grok
+		if proxy := accountProxyURL(*acct); proxy != "" {
+			client = grok.NewClient(proxy)
+		}
+		return client.OpenAsset(ctx, acct.Value, ev.File)
 	}
 	// Other providers return publicly-fetchable URLs — proxy directly.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ev.File, nil)
 	if err != nil {
 		return nil, "", err
 	}
-	resp, err := (&http.Client{Timeout: 5 * time.Minute}).Do(req)
+	resp, err := s.accountHTTPClient(ctx, ev.Provider, ev.AccountID, 5*time.Minute).Do(req)
 	if err != nil {
 		return nil, "", fmt.Errorf("%w: fetch upstream video: %v", ErrProviderTemporary, err)
 	}
@@ -1170,13 +1175,17 @@ func (s *V1Service) OpenImageContent(ctx context.Context, principal *APIPrincipa
 		if acct == nil || strings.TrimSpace(acct.Value) == "" {
 			return nil, "", fmt.Errorf("%w: chatgpt account no longer available for this image", ErrProviderTemporary)
 		}
-		return s.chatgpt.OpenAsset(ctx, acct.Value, ev.File)
+		client := s.chatgpt
+		if proxy := accountProxyURL(*acct); proxy != "" {
+			client = chatgpt.NewClient(proxy)
+		}
+		return client.OpenAsset(ctx, acct.Value, ev.File)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ev.File, nil)
 	if err != nil {
 		return nil, "", err
 	}
-	resp, err := (&http.Client{Timeout: 5 * time.Minute}).Do(req)
+	resp, err := s.accountHTTPClient(ctx, ev.Provider, ev.AccountID, 5*time.Minute).Do(req)
 	if err != nil {
 		return nil, "", fmt.Errorf("%w: fetch upstream image: %v", ErrProviderTemporary, err)
 	}
@@ -1831,15 +1840,19 @@ func (s *V1Service) generateAdobeImage(ctx context.Context, eventID string, mode
 	// (see runPoolWithFailover). imageURL is captured from the successful attempt.
 	var imageURL string
 	data, err := s.runPoolWithFailover(ctx, eventID, "adobe", active, "image", func(token model.TokenAccount) ([]byte, error) {
+		adobeClient := s.adobe
+		if proxy := accountProxyURL(token); proxy != "" {
+			adobeClient = adobe.NewClient("", proxy)
+		}
 		var blobIDs []string
 		for _, ref := range refs {
-			id, upErr := s.adobe.UploadImage(ctx, token.Value, ref, "image/png", "")
+			id, upErr := adobeClient.UploadImage(ctx, token.Value, ref, "image/png", "")
 			if upErr != nil {
 				return nil, upErr
 			}
 			blobIDs = append(blobIDs, id)
 		}
-		d, meta, genErr := s.adobe.GenerateImage(ctx, token.Value, modelItem.ID, in.Prompt, aspectRatio, resolution, blobIDs, !urlOnly)
+		d, meta, genErr := adobeClient.GenerateImage(ctx, token.Value, modelItem.ID, in.Prompt, aspectRatio, resolution, blobIDs, !urlOnly)
 		if genErr == nil {
 			imageURL = strings.TrimSpace(stringValue(meta["image_url"]))
 		}
@@ -1855,21 +1868,9 @@ func (s *V1Service) generateAdobeVideo(ctx context.Context, eventID string, mode
 		return nil, "", errors.New("adobe client not configured")
 	}
 	engine, upstreamModel := resolveAdobeVideoEngine(modelItem.ID)
-	adobeClient := s.adobe
 	if s.settings != nil {
-		proxyKey := "proxy.url"
-		if engine == "seedance2" || engine == "seedance2-fast" {
-			proxyKey = "proxy.adobe.url"
-		}
-		proxy, err := s.settings.GetValue(ctx, proxyKey)
-		if (err != nil || strings.TrimSpace(proxy) == "") && proxyKey != "proxy.url" {
-			proxy, err = s.settings.GetValue(ctx, "proxy.url")
-		}
-		if err == nil {
-			// Use a request-local client. Seedance has a Japan-only proxy while
-			// the other providers retain the global route; mutating the shared
-			// Adobe client here would race concurrent image/video requests.
-			adobeClient = adobe.NewClient("", proxy)
+		if proxy, err := s.settings.GetValue(ctx, "proxy.url"); err == nil {
+			s.adobe.SetProxy(proxy)
 		}
 	}
 
@@ -1911,6 +1912,10 @@ func (s *V1Service) generateAdobeVideo(ctx context.Context, eventID string, mode
 	// captured from the successful attempt's meta (the upstream presigned URL).
 	var videoURL string
 	data, err := s.runPoolWithFailover(ctx, eventID, "adobe", active, "video", func(token model.TokenAccount) ([]byte, error) {
+		adobeClient := s.adobe
+		if proxy := accountProxyURL(token); proxy != "" {
+			adobeClient = adobe.NewClient("", proxy)
+		}
 		var blobIDs []string
 		for _, ref := range refs {
 			id, upErr := adobeClient.UploadImage(ctx, token.Value, ref, "image/png", engine)
@@ -1996,7 +2001,11 @@ func (s *V1Service) generateRunwayVideo(ctx context.Context, eventID string, mod
 			if token.Meta != nil {
 				teamID = strings.TrimSpace(stringValue(token.Meta["team_id"]))
 			}
-			d, meta, genErr := s.runway.GenerateVideo(ctx, token.Value, teamID, in.Prompt, aspectRatio, durationSeconds, frame, downloadResult)
+			runwayClient := s.runway
+			if proxy := accountProxyURL(token); proxy != "" {
+				runwayClient = runway.NewClient(proxy)
+			}
+			d, meta, genErr := runwayClient.GenerateVideo(ctx, token.Value, teamID, in.Prompt, aspectRatio, durationSeconds, frame, downloadResult)
 			if genErr == nil {
 				_, _ = s.tokens.Update(ctx, "runway", token.ID, map[string]any{
 					"last_used_at":  time.Now(),
@@ -2058,6 +2067,40 @@ func customAccountServes(item model.TokenAccount, modelID string) bool {
 		}
 	}
 	return false
+}
+
+func accountProxyURL(item model.TokenAccount) string {
+	if item.Meta == nil {
+		return ""
+	}
+	return strings.TrimSpace(stringValue(item.Meta["proxy_url"]))
+}
+
+func (s *V1Service) accountHTTPClient(ctx context.Context, provider, accountID string, timeout time.Duration) *http.Client {
+	client := &http.Client{Timeout: timeout}
+	if s.tokens == nil || strings.TrimSpace(accountID) == "" {
+		return client
+	}
+	pool := normalizePool(provider)
+	if strings.EqualFold(strings.TrimSpace(provider), "openai") {
+		pool = "chatgpt"
+	}
+	if pool == "" {
+		return client
+	}
+	account, err := s.tokens.Get(ctx, pool, accountID)
+	if err != nil || account == nil {
+		return client
+	}
+	proxy := accountProxyURL(*account)
+	parsed, err := url.Parse(proxy)
+	if err != nil || parsed.Host == "" {
+		return client
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = http.ProxyURL(parsed)
+	client.Transport = transport
+	return client
 }
 
 // customActive returns the custom accounts that serve modelID, ordered by weight
@@ -2125,8 +2168,8 @@ func (s *V1Service) effectiveImageProvider(ctx context.Context, modelItem *model
 }
 
 // generateCustomImage forwards an image generation to an OpenAI-compatible
-// upstream. The upstream (custom account) is matched by model id; calls go direct
-// (no proxy). Billing uses the local model price.
+// upstream. The upstream (custom account) is matched by model id; billing uses
+// the local model price.
 func (s *V1Service) generateCustomImage(ctx context.Context, eventID string, modelItem *model.ModelConfig, in V1ImageRequest, aspectRatio, resolution string, noStore bool) ([]byte, string, error) {
 	urlOnly := noStore
 	if s.custom == nil {
@@ -2160,7 +2203,11 @@ func (s *V1Service) generateCustomImage(ctx context.Context, eventID string, mod
 			_ = s.events.SetAccount(ctx, eventID, token.ID, token.AccountEmail)
 			_ = s.tokens.TouchLastUsed(ctx, token.ID)
 			baseURL := stringValue(token.Meta["base_url"])
-			d, u, genErr := s.custom.GenerateImage(ctx, baseURL, token.Value, modelItem.ID, in.Prompt, size, quality, refs, !urlOnly)
+			customClient := s.custom
+			if proxy := accountProxyURL(token); proxy != "" {
+				customClient = custom.NewClient(proxy)
+			}
+			d, u, genErr := customClient.GenerateImage(ctx, baseURL, token.Value, modelItem.ID, in.Prompt, size, quality, refs, !urlOnly)
 			if genErr == nil {
 				_, _ = s.tokens.Update(ctx, "custom", token.ID, map[string]any{
 					"last_used_at": time.Now(), "success_total": gorm.Expr("success_total + 1"), "fails": 0,
@@ -2201,7 +2248,7 @@ func (s *V1Service) generateCustomImage(ctx context.Context, eventID string, mod
 }
 
 // generateCustomVideo forwards a video generation to an OpenAI-compatible
-// (Sora-style) upstream, matched by model id. No proxy; local-price billing.
+// (Sora-style) upstream, matched by model id with local-price billing.
 func (s *V1Service) generateCustomVideo(ctx context.Context, eventID string, modelItem *model.ModelConfig, in V1VideoRequest, aspectRatio, resolution string, durationSeconds int, downloadResult bool) ([]byte, string, error) {
 	if s.custom == nil {
 		return nil, "", errors.New("custom client not configured")
@@ -2229,7 +2276,11 @@ func (s *V1Service) generateCustomVideo(ctx context.Context, eventID string, mod
 			_ = s.events.SetAccount(ctx, eventID, token.ID, token.AccountEmail)
 			_ = s.tokens.TouchLastUsed(ctx, token.ID)
 			baseURL := stringValue(token.Meta["base_url"])
-			d, url, genErr := s.custom.GenerateVideo(ctx, baseURL, token.Value, modelItem.ID, in.Prompt, size, durationSeconds, downloadResult)
+			customClient := s.custom
+			if proxy := accountProxyURL(token); proxy != "" {
+				customClient = custom.NewClient(proxy)
+			}
+			d, url, genErr := customClient.GenerateVideo(ctx, baseURL, token.Value, modelItem.ID, in.Prompt, size, durationSeconds, downloadResult)
 			if genErr == nil {
 				_, _ = s.tokens.Update(ctx, "custom", token.ID, map[string]any{
 					"last_used_at": time.Now(), "success_total": gorm.Expr("success_total + 1"), "fails": 0,
@@ -2400,7 +2451,11 @@ func (s *V1Service) generateGrokVideo(ctx context.Context, eventID string, model
 			defer s.acctRelease(ctx, token.ID, eventID)
 			_ = s.events.SetAccount(ctx, eventID, token.ID, token.AccountEmail)
 			_ = s.tokens.TouchLastUsed(ctx, token.ID)
-			d, meta, genErr := s.grok.GenerateVideo(ctx, token.Value, in.Prompt, aspectRatio, res, durationSeconds, frames, downloadResult)
+			grokClient := s.grok
+			if proxy := accountProxyURL(token); proxy != "" {
+				grokClient = grok.NewClient(proxy)
+			}
+			d, meta, genErr := grokClient.GenerateVideo(ctx, token.Value, in.Prompt, aspectRatio, res, durationSeconds, frames, downloadResult)
 			if genErr == nil {
 				_, _ = s.tokens.Update(ctx, "grok", token.ID, map[string]any{
 					"last_used_at":  time.Now(),
@@ -2512,9 +2567,13 @@ func (s *V1Service) generateRunwayImage(ctx context.Context, eventID string, mod
 			if token.Meta != nil {
 				teamID = strings.TrimSpace(stringValue(token.Meta["team_id"]))
 			}
+			runwayClient := s.runway
+			if proxy := accountProxyURL(token); proxy != "" {
+				runwayClient = runway.NewClient(proxy)
+			}
 			// downloadResult=false in url-only mode → skip the artifact download and
 			// just return meta["image_url"].
-			d, meta, genErr := s.runway.GenerateImage(ctx, token.Value, teamID, modelItem.ID, in.Prompt, aspectRatio, imageSize, refs, !urlOnly)
+			d, meta, genErr := runwayClient.GenerateImage(ctx, token.Value, teamID, modelItem.ID, in.Prompt, aspectRatio, imageSize, refs, !urlOnly)
 			if genErr == nil {
 				_, _ = s.tokens.Update(ctx, "runway", token.ID, map[string]any{
 					"last_used_at":  time.Now(),
@@ -2561,11 +2620,11 @@ func (s *V1Service) generateRunwayImage(ctx context.Context, eventID string, mod
 // flipping the account to 限额 when it hits 0 — so accounts limit one-by-one as
 // they're used, not all at once on a later batch probe. Runs while the
 // per-account concurrency gate is still held. Best-effort (never fails the render).
-func (s *V1Service) reconcileChatGPTQuota(ctx context.Context, tokenID, accessToken string) {
-	if s.chatgpt == nil {
+func (s *V1Service) reconcileChatGPTQuota(ctx context.Context, client *chatgpt.Client, tokenID, accessToken string) {
+	if client == nil {
 		return
 	}
-	data, err := s.chatgpt.FetchImageQuota(ctx, accessToken)
+	data, err := client.FetchImageQuota(ctx, accessToken)
 	if err != nil || boolValueWithDefault(data["auth_failed"], false) {
 		return
 	}
@@ -2634,12 +2693,16 @@ func (s *V1Service) generateChatGPTImage(ctx context.Context, eventID string, mo
 	// account dead. Auth/quota fail over immediately (see runPoolWithFailover).
 	var imageURL string
 	data, err := s.runPoolWithFailover(ctx, eventID, "chatgpt", active, "image", func(token model.TokenAccount) ([]byte, error) {
-		d, meta, genErr := s.chatgpt.GenerateImage(ctx, token.Value, in.Prompt, modelItem.ID, aspectRatio, resolution, refs, !urlOnly)
+		chatgptClient := s.chatgpt
+		if proxy := accountProxyURL(token); proxy != "" {
+			chatgptClient = chatgpt.NewClient(proxy)
+		}
+		d, meta, genErr := chatgptClient.GenerateImage(ctx, token.Value, in.Prompt, modelItem.ID, aspectRatio, resolution, refs, !urlOnly)
 		if genErr == nil {
 			imageURL = strings.TrimSpace(stringValue(meta["image_url"]))
 			// Sync the real OpenAI quota BEFORE the concurrency gate releases, so the
 			// freshly-decremented remaining (and 限额 flip at 0) gates the next pick.
-			s.reconcileChatGPTQuota(ctx, token.ID, token.Value)
+			s.reconcileChatGPTQuota(ctx, chatgptClient, token.ID, token.Value)
 		}
 		return d, genErr
 	}, func(e error) (bool, bool, bool, bool) {
@@ -2751,6 +2814,10 @@ func (s *V1Service) generateLeonardoImage(ctx context.Context, eventID string, m
 	// auth failure means the cookie itself is dead — no refresher (nil).
 	var imageURL string
 	data, err := s.runPoolWithFailover(ctx, eventID, "leonardo", active, "image", func(token model.TokenAccount) ([]byte, error) {
+		leonardoClient := s.leonardo
+		if proxy := accountProxyURL(token); proxy != "" {
+			leonardoClient = leonardo.NewClient(proxy)
+		}
 		// Atomically pre-deduct the per-generation cost so concurrent picks of the
 		// same near-empty account can't over-commit it. A known-insufficient
 		// balance surfaces as quota → the driver fails over to the next account.
@@ -2761,7 +2828,7 @@ func (s *V1Service) generateLeonardoImage(ctx context.Context, eventID string, m
 		if !allowed {
 			return nil, leonardo.ErrQuotaExhausted
 		}
-		data, meta, genErr := s.leonardo.GenerateImage(ctx, token.Value, upstreamModel, in.Prompt, width, height, nil, refs, !urlOnly)
+		data, meta, genErr := leonardoClient.GenerateImage(ctx, token.Value, upstreamModel, in.Prompt, width, height, nil, refs, !urlOnly)
 		if genErr != nil {
 			// Release the hold so a failed render doesn't burn credits.
 			if deducted {
@@ -2772,7 +2839,7 @@ func (s *V1Service) generateLeonardoImage(ctx context.Context, eventID string, m
 		imageURL = strings.TrimSpace(stringValue(meta["image_url"]))
 		// Success → overwrite the held value with the REAL upstream balance and
 		// sink to 限额 if below the floor (best-effort; never fails a done render).
-		s.reconcileLeonardoCredits(ctx, token.ID, token.Value)
+		s.reconcileLeonardoCredits(ctx, leonardoClient, token.ID, token.Value)
 		return data, nil
 	}, func(e error) (bool, bool, bool, bool) {
 		return errors.Is(e, leonardo.ErrAuth), errors.Is(e, leonardo.ErrQuotaExhausted), errors.Is(e, leonardo.ErrTemporaryUpstream), false
@@ -2783,11 +2850,11 @@ func (s *V1Service) generateLeonardoImage(ctx context.Context, eventID string, m
 // reconcileLeonardoCredits re-fetches an account's real token balance after a
 // render and writes it back, flipping the account to 限额 when below the per-gen
 // floor. Stores the daily renewal time so RecoverQuota can auto-recover it.
-func (s *V1Service) reconcileLeonardoCredits(ctx context.Context, tokenID, cookie string) {
-	if s.leonardo == nil {
+func (s *V1Service) reconcileLeonardoCredits(ctx context.Context, client *leonardo.Client, tokenID, cookie string) {
+	if client == nil {
 		return
 	}
-	data, err := s.leonardo.FetchCreditsBalance(ctx, cookie)
+	data, err := client.FetchCreditsBalance(ctx, cookie)
 	if err != nil {
 		return
 	}
@@ -2900,13 +2967,17 @@ func (s *V1Service) generateKreaImage(ctx context.Context, eventID string, model
 
 	var imageURL string
 	data, err := s.runPoolWithFailover(ctx, eventID, "krea", active, "image", func(token model.TokenAccount) ([]byte, error) {
+		kreaClient := s.krea
+		if proxy := accountProxyURL(token); proxy != "" {
+			kreaClient = krea.NewClient(proxy)
+		}
 		// Refresh the (rotating) Supabase token if expired and persist the new
 		// cookie, then generate with the fresh cookie.
-		cookie, rerr := kreaRefreshAndPersist(ctx, s.krea, s.tokens, token.ID, token.Value)
+		cookie, rerr := kreaRefreshAndPersist(ctx, kreaClient, s.tokens, token.ID, token.Value)
 		if rerr != nil {
 			return nil, rerr
 		}
-		data, meta, genErr := s.krea.GenerateImage(ctx, cookie, in.Prompt, width, height, refs, !urlOnly)
+		data, meta, genErr := kreaClient.GenerateImage(ctx, cookie, in.Prompt, width, height, refs, !urlOnly)
 		if genErr == nil {
 			imageURL = strings.TrimSpace(stringValue(meta["image_url"]))
 		}
@@ -2976,13 +3047,17 @@ func (s *V1Service) generateImagineImage(ctx context.Context, eventID string, mo
 
 	var imageURL string
 	data, err := s.runPoolWithFailover(ctx, eventID, "imagine", active, "image", func(token model.TokenAccount) ([]byte, error) {
+		imagineClient := s.imagine
+		if proxy := accountProxyURL(token); proxy != "" {
+			imagineClient = imagine.NewClient(proxy)
+		}
 		// Refresh the (rotating) access token if expired and persist the new
 		// credential, then generate with the fresh token.
-		cred, rerr := imagineRefreshAndPersist(ctx, s.imagine, s.tokens, token.ID, token.Value)
+		cred, rerr := imagineRefreshAndPersist(ctx, imagineClient, s.tokens, token.ID, token.Value)
 		if rerr != nil {
 			return nil, rerr
 		}
-		data, meta, genErr := s.imagine.GenerateImage(ctx, cred, styleID, res, aspectRatio, in.Prompt, !urlOnly)
+		data, meta, genErr := imagineClient.GenerateImage(ctx, cred, styleID, res, aspectRatio, in.Prompt, !urlOnly)
 		if genErr != nil {
 			return nil, genErr
 		}

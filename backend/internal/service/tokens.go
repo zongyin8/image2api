@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -123,14 +124,22 @@ func (s *TokenService) RefreshExpiringTokens(ctx context.Context) {
 			if s.krea == nil {
 				continue
 			}
-			if _, rerr := kreaRefreshAndPersist(ctx, s.krea, s.tokens, it.ID, it.Value); rerr != nil && errors.Is(rerr, krea.ErrAuth) {
+			client := s.krea
+			if proxy := accountProxyURL(it); proxy != "" {
+				client = krea.NewClient(proxy)
+			}
+			if _, rerr := kreaRefreshAndPersist(ctx, client, s.tokens, it.ID, it.Value); rerr != nil && errors.Is(rerr, krea.ErrAuth) {
 				_, _ = s.tokens.Update(ctx, "krea", it.ID, map[string]any{"status": "disabled", "dead": true})
 			}
 		case "imagine":
 			if s.imagine == nil {
 				continue
 			}
-			if _, rerr := imagineRefreshAndPersist(ctx, s.imagine, s.tokens, it.ID, it.Value); rerr != nil && errors.Is(rerr, imagine.ErrAuth) {
+			client := s.imagine
+			if proxy := accountProxyURL(it); proxy != "" {
+				client = imagine.NewClient(proxy)
+			}
+			if _, rerr := imagineRefreshAndPersist(ctx, client, s.tokens, it.ID, it.Value); rerr != nil && errors.Is(rerr, imagine.ErrAuth) {
 				_, _ = s.tokens.Update(ctx, "imagine", it.ID, map[string]any{"status": "disabled", "dead": true})
 			}
 		}
@@ -178,7 +187,11 @@ func (s *TokenService) ActivateKreaDue(ctx context.Context) {
 				defer func() { <-sem }()
 				actx, cancel := context.WithTimeout(bg, 90*time.Second)
 				defer cancel()
-				s.krea.Activate(actx, it.Value) // load /app → grant daily balance
+				client := s.krea
+				if proxy := accountProxyURL(it); proxy != "" {
+					client = krea.NewClient(proxy)
+				}
+				client.Activate(actx, it.Value) // load /app → grant daily balance
 				_, _ = s.Quota(actx, "krea", it.ID)
 			}(it)
 		}
@@ -965,6 +978,10 @@ func (s *TokenService) RefreshGrokLiveness(ctx context.Context) {
 		if it.Pool != "grok" || it.Dead || it.Status == "disabled" || strings.TrimSpace(it.Value) == "" {
 			continue
 		}
+		client := s.grok
+		if proxy := accountProxyURL(it); proxy != "" {
+			client = grok.NewClient(proxy)
+		}
 		// A grok sso can momentarily 401 (upstream blip / proxy hiccup / anti-bot)
 		// while still being fully valid, so a single auth failure must never kill a
 		// live account. Retry the subscription probe up to 3 times on 401/403; only
@@ -972,7 +989,7 @@ func (s *TokenService) RefreshGrokLiveness(ctx context.Context) {
 		var sub *grok.Subscription
 		var serr error
 		for attempt := 1; attempt <= 3; attempt++ {
-			sub, serr = s.grok.FetchSubscription(ctx, it.Value)
+			sub, serr = client.FetchSubscription(ctx, it.Value)
 			if serr == nil || !errors.Is(serr, grok.ErrAuth) {
 				break
 			}
@@ -992,7 +1009,7 @@ func (s *TokenService) RefreshGrokLiveness(ctx context.Context) {
 			_, _ = s.tokens.Update(ctx, "grok", it.ID, map[string]any{"status": "disabled", "dead": true})
 			continue
 		}
-		data, derr := s.grok.FetchCreditsBalance(ctx, it.Value)
+		data, derr := client.FetchCreditsBalance(ctx, it.Value)
 		if derr != nil {
 			// Same policy as the subscription probe: a credits-balance 401/403 is
 			// transient, never a reason to kill a live account. Skip and retry.
@@ -1020,8 +1037,8 @@ func (s *TokenService) RefreshGrokLiveness(ctx context.Context) {
 // ImportCustomAccount adds an upstream as a custom account: base_url + key, the
 // csv list of model ids it serves (empty = all), plus optional weight and
 // per-account concurrency. No probe — the account goes active immediately and is
-// matched to custom models by id at generation time. Calls go direct (no proxy).
-func (s *TokenService) ImportCustomAccount(ctx context.Context, baseURL, apiKey, models, name, protocol string, weight, concurrency int, tokenID string) (*model.TokenAccount, error) {
+// matched to custom models by id at generation time.
+func (s *TokenService) ImportCustomAccount(ctx context.Context, baseURL, apiKey, models, name, protocol, proxyURL string, weight, concurrency int, tokenID string) (*model.TokenAccount, error) {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	apiKey = strings.TrimSpace(apiKey)
 	protocol = strings.ToLower(strings.TrimSpace(protocol))
@@ -1030,6 +1047,10 @@ func (s *TokenService) ImportCustomAccount(ctx context.Context, baseURL, apiKey,
 	}
 	if protocol != "openai" {
 		return nil, errors.New("unsupported upstream protocol")
+	}
+	proxyURL, err := normalizeAccountProxy(proxyURL)
+	if err != nil {
+		return nil, err
 	}
 	// Edit mode: tokenID points at an existing custom account. base_url required;
 	// a blank key keeps the stored one.
@@ -1041,9 +1062,18 @@ func (s *TokenService) ImportCustomAccount(ctx context.Context, baseURL, apiKey,
 		if baseURL == "" {
 			return nil, errors.New("base_url required")
 		}
-		meta := datatypes.JSONMap{"base_url": baseURL, "protocol": protocol}
+		meta := cloneJSONMap(existing.Meta)
+		meta["base_url"] = baseURL
+		meta["protocol"] = protocol
+		if proxyURL == "" {
+			delete(meta, "proxy_url")
+		} else {
+			meta["proxy_url"] = proxyURL
+		}
 		if m := strings.TrimSpace(models); m != "" {
 			meta["models"] = m
+		} else {
+			delete(meta, "models")
 		}
 		patch := map[string]any{"meta": meta, "weight": weight, "concurrency": concurrency, "account_email": strings.TrimSpace(name)}
 		if apiKey != "" {
@@ -1053,13 +1083,15 @@ func (s *TokenService) ImportCustomAccount(ctx context.Context, baseURL, apiKey,
 		if uerr != nil {
 			return nil, uerr
 		}
-		_ = existing
 		return item, nil
 	}
 	if baseURL == "" || apiKey == "" {
 		return nil, errors.New("base_url and key required")
 	}
 	meta := datatypes.JSONMap{"base_url": baseURL, "protocol": protocol}
+	if proxyURL != "" {
+		meta["proxy_url"] = proxyURL
+	}
 	if m := strings.TrimSpace(models); m != "" {
 		meta["models"] = m
 	}
@@ -1135,10 +1167,93 @@ func (s *TokenService) Update(ctx context.Context, pool, id string, body map[str
 	if raw, ok := body["fails"]; ok {
 		patch["fails"] = intValue(raw)
 	}
+	if raw, ok := body["weight"]; ok {
+		weight := intValue(raw)
+		if weight < 0 || weight > 10000 {
+			return nil, errors.New("weight must be between 0 and 10000")
+		}
+		patch["weight"] = weight
+	}
+	if raw, ok := body["concurrency"]; ok {
+		if pool != "custom" {
+			return nil, errors.New("concurrency is only configurable for custom accounts")
+		}
+		concurrency := intValue(raw)
+		if concurrency < 1 || concurrency > 1000 {
+			return nil, errors.New("concurrency must be between 1 and 1000")
+		}
+		patch["concurrency"] = concurrency
+	}
+	if raw, ok := body["proxy_url"]; ok {
+		proxyURL, err := normalizeAccountProxy(stringValue(raw))
+		if err != nil {
+			return nil, err
+		}
+		item, err := s.tokens.Get(ctx, pool, id)
+		if err != nil {
+			return nil, err
+		}
+		meta := cloneJSONMap(item.Meta)
+		if proxyURL == "" {
+			delete(meta, "proxy_url")
+		} else {
+			meta["proxy_url"] = proxyURL
+		}
+		patch["meta"] = meta
+	}
 	if len(patch) == 0 {
 		return s.tokens.Get(ctx, pool, id)
 	}
 	return s.tokens.Update(ctx, pool, id, patch)
+}
+
+func normalizeAccountProxy(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return "", errors.New("invalid proxy URL")
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "http", "https", "socks5", "socks5h":
+		return raw, nil
+	default:
+		return "", errors.New("proxy scheme must be http, https, socks5, or socks5h")
+	}
+}
+
+// UpdateBulk applies common account settings to a selected set of account IDs.
+// IDs are globally unique, so the account's pool can be resolved from one list.
+func (s *TokenService) UpdateBulk(ctx context.Context, ids []string, body map[string]any) (int, error) {
+	wanted := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if id = strings.TrimSpace(id); id != "" {
+			wanted[id] = struct{}{}
+		}
+	}
+	if len(wanted) == 0 {
+		return 0, errors.New("no accounts selected")
+	}
+	if len(body) == 0 {
+		return 0, errors.New("no changes supplied")
+	}
+	items, err := s.tokens.List(ctx)
+	if err != nil {
+		return 0, err
+	}
+	updated := 0
+	for _, item := range items {
+		if _, ok := wanted[item.ID]; !ok {
+			continue
+		}
+		if _, err := s.Update(ctx, item.Pool, item.ID, body); err != nil {
+			return updated, fmt.Errorf("update %s: %w", item.ID, err)
+		}
+		updated++
+	}
+	return updated, nil
 }
 
 func (s *TokenService) Delete(ctx context.Context, pool, id string) error {
@@ -1215,7 +1330,11 @@ func (s *TokenService) Quota(ctx context.Context, pool, id string) (map[string]a
 		return nil, err
 	}
 	if poolToType(item.Pool) == "openai" && s.chatgpt != nil {
-		data, err := s.chatgpt.FetchImageQuota(ctx, item.Value)
+		client := s.chatgpt
+		if proxy := accountProxyURL(*item); proxy != "" {
+			client = chatgpt.NewClient(proxy)
+		}
+		data, err := client.FetchImageQuota(ctx, item.Value)
 		if err != nil {
 			return nil, err
 		}
@@ -1263,7 +1382,11 @@ func (s *TokenService) Quota(ctx context.Context, pool, id string) (map[string]a
 		}, nil
 	}
 	if poolToType(item.Pool) == "adobe" && s.adobe != nil {
-		data, err := s.adobe.FetchCreditsBalance(ctx, item.Value)
+		client := s.adobe
+		if proxy := accountProxyURL(*item); proxy != "" {
+			client = adobe.NewClient("", proxy)
+		}
+		data, err := client.FetchCreditsBalance(ctx, item.Value)
 		if err != nil {
 			if errors.Is(err, adobe.ErrAuth) {
 				_, _ = s.tokens.Update(ctx, item.Pool, item.ID, map[string]any{
@@ -1310,7 +1433,11 @@ func (s *TokenService) Quota(ctx context.Context, pool, id string) (map[string]a
 	}
 	if poolToType(item.Pool) == "krea" && s.krea != nil {
 		s.applyProxy(ctx)
-		cookie, rerr := kreaRefreshAndPersist(ctx, s.krea, s.tokens, item.ID, item.Value)
+		client := s.krea
+		if proxy := accountProxyURL(*item); proxy != "" {
+			client = krea.NewClient(proxy)
+		}
+		cookie, rerr := kreaRefreshAndPersist(ctx, client, s.tokens, item.ID, item.Value)
 		if rerr != nil {
 			if errors.Is(rerr, krea.ErrAuth) {
 				_, _ = s.tokens.Update(ctx, item.Pool, item.ID, map[string]any{
@@ -1319,7 +1446,7 @@ func (s *TokenService) Quota(ctx context.Context, pool, id string) (map[string]a
 			}
 			return nil, rerr
 		}
-		data, err := s.krea.FetchCreditsBalance(ctx, cookie)
+		data, err := client.FetchCreditsBalance(ctx, cookie)
 		if err != nil {
 			if errors.Is(err, krea.ErrAuth) {
 				_, _ = s.tokens.Update(ctx, item.Pool, item.ID, map[string]any{
@@ -1360,7 +1487,11 @@ func (s *TokenService) Quota(ctx context.Context, pool, id string) (map[string]a
 	}
 	if poolToType(item.Pool) == "imagine" && s.imagine != nil {
 		s.applyProxy(ctx)
-		cred, rerr := imagineRefreshAndPersist(ctx, s.imagine, s.tokens, item.ID, item.Value)
+		client := s.imagine
+		if proxy := accountProxyURL(*item); proxy != "" {
+			client = imagine.NewClient(proxy)
+		}
+		cred, rerr := imagineRefreshAndPersist(ctx, client, s.tokens, item.ID, item.Value)
 		if rerr != nil {
 			if errors.Is(rerr, imagine.ErrAuth) {
 				_, _ = s.tokens.Update(ctx, item.Pool, item.ID, map[string]any{
@@ -1369,7 +1500,7 @@ func (s *TokenService) Quota(ctx context.Context, pool, id string) (map[string]a
 			}
 			return nil, rerr
 		}
-		data, err := s.imagine.FetchCreditsBalance(ctx, cred)
+		data, err := client.FetchCreditsBalance(ctx, cred)
 		if err != nil {
 			if errors.Is(err, imagine.ErrAuth) {
 				_, _ = s.tokens.Update(ctx, item.Pool, item.ID, map[string]any{
@@ -1409,7 +1540,11 @@ func (s *TokenService) Quota(ctx context.Context, pool, id string) (map[string]a
 	}
 	if poolToType(item.Pool) == "leonardo" && s.leonardo != nil {
 		s.applyProxy(ctx)
-		data, err := s.leonardo.FetchCreditsBalance(ctx, item.Value)
+		client := s.leonardo
+		if proxy := accountProxyURL(*item); proxy != "" {
+			client = leonardo.NewClient(proxy)
+		}
+		data, err := client.FetchCreditsBalance(ctx, item.Value)
 		if err != nil {
 			if errors.Is(err, leonardo.ErrAuth) {
 				_, _ = s.tokens.Update(ctx, item.Pool, item.ID, map[string]any{
@@ -1455,7 +1590,11 @@ func (s *TokenService) Quota(ctx context.Context, pool, id string) (map[string]a
 		}, nil
 	}
 	if poolToType(item.Pool) == "runway" && s.runway != nil {
-		data, err := s.runway.FetchCreditsBalance(ctx, item.Value)
+		client := s.runway
+		if proxy := accountProxyURL(*item); proxy != "" {
+			client = runway.NewClient(proxy)
+		}
+		data, err := client.FetchCreditsBalance(ctx, item.Value)
 		if err != nil {
 			if errors.Is(err, runway.ErrAuth) {
 				_, _ = s.tokens.Update(ctx, item.Pool, item.ID, map[string]any{
@@ -1500,7 +1639,11 @@ func (s *TokenService) Quota(ctx context.Context, pool, id string) (map[string]a
 		}, nil
 	}
 	if poolToType(item.Pool) == "grok" && s.grok != nil {
-		data, err := s.grok.FetchCreditsBalance(ctx, item.Value)
+		client := s.grok
+		if proxy := accountProxyURL(*item); proxy != "" {
+			client = grok.NewClient(proxy)
+		}
+		data, err := client.FetchCreditsBalance(ctx, item.Value)
 		if err != nil {
 			if errors.Is(err, grok.ErrAuth) {
 				_, _ = s.tokens.Update(ctx, item.Pool, item.ID, map[string]any{
@@ -1690,6 +1833,7 @@ func accountRow(item model.TokenAccount, inFlight int64) map[string]any {
 		"needs_reset_fetch": typeLabel == "adobe" && item.Status == "active" && strings.TrimSpace(item.CachedQuotaResetAfter) == "",
 		"weight":            item.Weight,
 		"concurrency":       item.Concurrency,
+		"proxy_url":         strings.TrimSpace(stringValue(item.Meta["proxy_url"])),
 		"base_url":          emptyToNil(strings.TrimSpace(stringValue(item.Meta["base_url"]))),
 		"models":            strings.TrimSpace(stringValue(item.Meta["models"])),
 		"protocol":          defaultString(strings.TrimSpace(stringValue(item.Meta["protocol"])), "openai"),

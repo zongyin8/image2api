@@ -11,13 +11,17 @@ const canEditConcurrency = props.account.type === 'custom'
 
 const weight = ref(Number(props.account.weight) || 0)
 const concurrency = ref(Number(props.account.concurrency) || 1)
+const proxyURL = ref(props.account.proxy_url || '')
 const status = ref('')
 const isError = ref(false)
 const submitting = ref(false)
 
 async function submit() {
   submitting.value = true; status.value = ''; isError.value = false
-  const payload = { weight: Number(weight.value) || 0 }
+  const payload = {
+    weight: Number(weight.value) || 0,
+    proxy_url: proxyURL.value.trim(),
+  }
   if (canEditConcurrency) payload.concurrency = Math.max(1, Number(concurrency.value) || 1)
   try {
     const r = await api(`/tokens/${props.account.pool}/${props.account.id}`, jsonBody('PATCH', payload))
@@ -57,6 +61,11 @@ async function submit() {
         <div>
           <label class="lbl">权重 <span class="text-white/35">(高的优先)</span></label>
           <input v-model.number="weight" type="number" class="field" placeholder="0" />
+        </div>
+        <div>
+          <label class="lbl">账号代理 <span class="text-white/35">(留空使用节点全局代理)</span></label>
+          <input v-model="proxyURL" class="field font-mono text-xs" placeholder="socks5://user:pass@host:port" />
+          <p class="mt-1.5 text-[11px] leading-relaxed text-white/35">支持 HTTP、HTTPS、SOCKS5；仅该账号的上游请求使用此代理。</p>
         </div>
         <div>
           <label class="lbl">并发数 <span class="text-white/35">{{ canEditConcurrency ? '(单账号)' : '(系统固定,不可调整)' }}</span></label>

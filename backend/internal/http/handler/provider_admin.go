@@ -142,6 +142,7 @@ func (h *ProviderAdminHandler) ImportCustomAccount(c *gin.Context) {
 		Name        string `json:"name"`
 		Weight      int    `json:"weight"`
 		Concurrency int    `json:"concurrency"`
+		ProxyURL    string `json:"proxy_url"`
 		Protocol    string `json:"protocol"`
 		ID          string `json:"id"`
 	}
@@ -157,7 +158,7 @@ func (h *ProviderAdminHandler) ImportCustomAccount(c *gin.Context) {
 	if key == "" {
 		key = body.APIKey
 	}
-	item, err := h.tokens.ImportCustomAccount(c.Request.Context(), baseURL, key, body.Models, body.Name, body.Protocol, body.Weight, body.Concurrency, body.ID)
+	item, err := h.tokens.ImportCustomAccount(c.Request.Context(), baseURL, key, body.Models, body.Name, body.Protocol, body.ProxyURL, body.Weight, body.Concurrency, body.ID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return
@@ -291,6 +292,35 @@ func (h *ProviderAdminHandler) TokenUpdate(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "data": item})
+}
+
+func (h *ProviderAdminHandler) TokenUpdateBulk(c *gin.Context) {
+	var body struct {
+		IDs      []string `json:"ids"`
+		ProxyURL *string  `json:"proxy_url"`
+		Weight   *int     `json:"weight"`
+		Status   *string  `json:"status"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "invalid request body"})
+		return
+	}
+	patch := map[string]any{}
+	if body.ProxyURL != nil {
+		patch["proxy_url"] = *body.ProxyURL
+	}
+	if body.Weight != nil {
+		patch["weight"] = *body.Weight
+	}
+	if body.Status != nil {
+		patch["status"] = *body.Status
+	}
+	n, err := h.tokens.UpdateBulk(c.Request.Context(), body.IDs, patch)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "updated": n})
 }
 
 func (h *ProviderAdminHandler) TokenDelete(c *gin.Context) {

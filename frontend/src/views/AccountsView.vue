@@ -5,6 +5,7 @@ import { fmtTs, fmtIso, fmtDate, fmtClock } from '../utils/format'
 import ImportModal from '../components/ImportModal.vue'
 import UpstreamModal from '../components/UpstreamModal.vue'
 import AccountEditModal from '../components/AccountEditModal.vue'
+import AccountBulkEditModal from '../components/AccountBulkEditModal.vue'
 import AccountTestModal from '../components/AccountTestModal.vue'
 import Icon from '../components/Icon.vue'
 
@@ -17,6 +18,7 @@ const editingUpstream = ref(null)
 function editUpstream(a) { editingUpstream.value = a; showUpstream.value = true }
 const editingAccount = ref(null)
 function editAccount(a) { editingAccount.value = a }
+const showBulkEdit = ref(false)
 const testingAccount = ref(null)
 function testAccount(a) { testingAccount.value = a }
 // 预加载模型列表，让「生图测试」弹窗即开即用(不显示加载中)。
@@ -31,6 +33,7 @@ function applyEdit(payload) {
   if (!row) return
   if (payload.weight != null) row.weight = payload.weight
   if (payload.concurrency != null) row.concurrency = payload.concurrency
+  if (payload.proxy_url != null) row.proxy_url = payload.proxy_url
 }
 
 const typeFilter = ref('')      // '' | provider pool, including 'custom'
@@ -310,6 +313,11 @@ async function deleteSelected() {
   }
 }
 
+function bulkEditSaved() {
+  selected.value = new Set()
+  loadAccounts()
+}
+
 onMounted(() => { loadAccounts(); loadModelList() })
 </script>
 
@@ -377,6 +385,9 @@ onMounted(() => { loadAccounts(); loadModelList() })
       <div class="flex-1 min-w-[200px]">
         <input v-model="search" class="field !py-1.5 text-xs" placeholder="搜索 邮箱 / ID / 类型…" />
       </div>
+      <button v-if="selected.size" @click="showBulkEdit = true" class="btn-soft" title="批量修改选中账号的代理、权重或状态">
+        <Icon name="config" class="w-3.5 h-3.5" /> 批量编辑 ({{ selected.size }})
+      </button>
       <button v-if="selected.size" @click="deleteSelected" class="btn-soft danger" title="删除选中的账号">
         <Icon name="trash" class="w-3.5 h-3.5" /> 删除选中 ({{ selected.size }})
       </button>
@@ -461,6 +472,9 @@ onMounted(() => { loadAccounts(); loadModelList() })
                 <span v-if="a.video_limited && a.status !== 'quota'"
                       class="shrink-0 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-300 ring-1 ring-amber-400/20"
                       title="视频额度耗尽，仅图片可用">视频限额</span>
+                <span v-if="a.proxy_url"
+                      class="shrink-0 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-sky-500/15 text-sky-300 ring-1 ring-sky-400/20"
+                      title="该账号已配置独立代理">代理</span>
               </div>
             </td>
             <!-- type -->
@@ -574,6 +588,7 @@ onMounted(() => { loadAccounts(); loadModelList() })
     <ImportModal v-if="showImport" @close="showImport = false" @imported="loadAccounts" />
     <UpstreamModal v-if="showUpstream" :account="editingUpstream" @close="showUpstream = false; editingUpstream = null" @imported="loadAccounts" />
     <AccountEditModal v-if="editingAccount" :account="editingAccount" @saved="applyEdit" @close="editingAccount = null" />
+    <AccountBulkEditModal v-if="showBulkEdit" :ids="[...selected]" @saved="bulkEditSaved" @close="showBulkEdit = false" />
     <AccountTestModal v-if="testingAccount" :account="testingAccount" :all-models="allModels" @close="testingAccount = null" />
   </section>
 </template>
