@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -57,5 +58,28 @@ func TestChatImageMarkdown(t *testing.T) {
 	}
 	if !strings.Contains(content, "https://example.invalid/image.png") {
 		t.Fatalf("missing URL image: %q", content)
+	}
+}
+
+func TestJSONImageReferences(t *testing.T) {
+	refs, err := jsonImageReferences(map[string]any{
+		"images": []any{
+			"data:image/png;base64,YWJj",
+			map[string]any{"b64_json": "ZGVm"},
+			map[string]any{"source": map[string]any{"type": "base64", "data": "Z2hp"}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"YWJj", "ZGVm", "Z2hp"}; !reflect.DeepEqual(refs, want) {
+		t.Fatalf("refs = %#v, want %#v", refs, want)
+	}
+}
+
+func TestJSONImageReferencesRejectsRemoteURL(t *testing.T) {
+	_, err := jsonImageReferences(map[string]any{"image_url": "https://example.invalid/image.png"})
+	if err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("err = %v", err)
 	}
 }

@@ -252,7 +252,9 @@ async function copy(text) {
         <ul class="mt-4 space-y-2.5 text-sm font-mono">
           <li class="flex items-center gap-2"><span class="badge-get">GET</span><span class="text-white/80">/v1/models</span></li>
           <li class="flex items-center gap-2"><span class="badge-post">POST</span><span class="text-white/80">/v1/images/generations</span><span class="text-white/35 font-sans text-xs">文生图</span></li>
-          <li class="flex items-center gap-2"><span class="badge-post">POST</span><span class="text-white/80">/v1/images/edits</span><span class="text-white/35 font-sans text-xs">图生图(multipart)</span></li>
+          <li class="flex items-center gap-2"><span class="badge-post">POST</span><span class="text-white/80">/v1/images/edits</span><span class="text-white/35 font-sans text-xs">图生图(multipart / JSON)</span></li>
+          <li class="flex items-center gap-2"><span class="badge-post">POST</span><span class="text-white/80">/v1/chat/completions</span><span class="text-white/35 font-sans text-xs">旧客户端生图兼容</span></li>
+          <li class="flex items-center gap-2"><span class="badge-post">POST</span><span class="text-white/80">/v1/responses</span><span class="text-white/35 font-sans text-xs">image_generation tool</span></li>
           <li class="flex items-center gap-2"><span class="badge-post">POST</span><span class="text-white/80">/v1/videos</span><span class="text-white/35 font-sans text-xs">建视频任务</span></li>
           <li class="flex items-center gap-2"><span class="badge-get">GET</span><span class="text-white/80">/v1/videos/{id}</span><span class="text-white/35 font-sans text-xs">查状态</span></li>
           <li class="flex items-center gap-2"><span class="badge-get">GET</span><span class="text-white/80">/v1/videos/{id}/content</span><span class="text-white/35 font-sans text-xs">下载 mp4</span></li>
@@ -308,7 +310,7 @@ async function copy(text) {
       </div>
 
       <div>
-        <h2 class="text-lg font-semibold mb-3">图生图参数 <span class="text-xs font-normal text-white/40">/v1/images/edits · multipart</span></h2>
+        <h2 class="text-lg font-semibold mb-3">图生图参数 <span class="text-xs font-normal text-white/40">/v1/images/edits · multipart 或 JSON/data URL</span></h2>
         <div class="card overflow-hidden">
           <table class="w-full text-sm">
             <thead><tr class="text-left text-[11px] uppercase tracking-wider text-white/40 border-b border-white/[0.08]">
@@ -431,7 +433,7 @@ async function copy(text) {
           <li>完成后 <code class="text-white/85 font-mono">GET /v1/videos/{id}/content</code> 返回 <strong class="text-white/90">mp4 原始二进制</strong>(非 base64、非 URL)</li>
         </ol>
         <p><strong class="text-white/90">计费(预扣)</strong>:生成<strong class="text-white/90">前</strong>按上表价格从你的 Key 账号预扣积分;图像或视频上游失败会自动退回 —— 失败不扣费。</p>
-        <p><strong class="text-white/90">参数映射</strong>:<code class="text-white/70">size</code>(宽x高)同时决定<strong class="text-white/90">比例 + 分辨率档</strong>(长边:&lt;1800→1K · 1800–3499→2K · ≥3500→4K),<code class="text-white/70">seconds</code>→视频时长。<strong class="text-white/90">没有 quality 参数</strong>,分辨率只看 size。档位须是该模型支持的(不支持会回退到该模型最低档);参数须落在定价表内否则 400,余额不足 402。</p>
+        <p><strong class="text-white/90">参数映射</strong>:<code class="text-white/70">size</code>(宽x高)同时决定<strong class="text-white/90">比例 + 分辨率档</strong>(长边:&lt;1800→1K · 1800–3499→2K · ≥3500→4K);未给 size 时可用 <code class="text-white/70">quality</code>(low / medium / high)选择模型可用档位。<code class="text-white/70">seconds</code>→视频时长。档位须落在模型定价表内,余额不足返回 402。</p>
         <div class="pt-2 grid sm:grid-cols-2 gap-2 text-xs">
           <div class="flex items-center gap-2"><span class="badge-err">401</span> Key 无效 / 上游需重新授权</div>
           <div class="flex items-center gap-2"><span class="badge-err">404</span> 未知 model / 视频任务不存在</div>

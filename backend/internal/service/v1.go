@@ -1342,9 +1342,12 @@ func (s *V1Service) prepareImage(ctx context.Context, principal *APIPrincipal, i
 	}
 	// `size` (WxH) drives BOTH the aspect ratio AND the resolution tier — its long
 	// edge maps to a tier (<1800→1K, 1800–3499→2K, ≥3500→4K). The web path passes
-	// an explicit resolution; the OpenAI /v1 path derives it from size. There is no
-	// `quality` param — size is the single source of truth for resolution.
+	// an explicit resolution; the OpenAI /v1 path derives it from size. When size
+	// is absent, quality selects the closest tier that the model actually prices.
 	aspectRatio, resolution := parseImageSize(in.Size, in.AspectRatio, in.Resolution)
+	if strings.TrimSpace(in.Size) == "" && strings.TrimSpace(in.Resolution) == "" && strings.TrimSpace(in.Quality) != "" {
+		resolution = resolutionForQuality(modelItem, in.Quality)
+	}
 	// Snap to the nearest ratio the model actually supports — a `size`-derived
 	// ratio (e.g. 1:3) must never be passed through to an upstream that rejects
 	// it (Runway 400s on ratios outside its list).

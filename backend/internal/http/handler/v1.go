@@ -335,34 +335,139 @@ func (h *V1Handler) ImageEdits(c *gin.Context) {
 		h.writeAuthError(c, err)
 		return
 	}
-	if !strings.HasPrefix(c.GetHeader("Content-Type"), "multipart/form-data") {
-		c.JSON(http.StatusBadRequest, gin.H{"detail": "images/edits requires multipart/form-data"})
+	var request service.V1ImageRequest
+	contentType := strings.ToLower(c.GetHeader("Content-Type"))
+	if strings.HasPrefix(contentType, "application/json") {
+		var body map[string]any
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"detail": "invalid JSON body"})
+			return
+		}
+		refs, refErr := jsonImageReferences(body)
+		if refErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"detail": refErr.Error()})
+			return
+		}
+		request = service.V1ImageRequest{
+			Model:           stringFromAny(body["model"]),
+			Prompt:          stringFromAny(body["prompt"]),
+			N:               intFromAny(body["n"]),
+			Size:            stringFromAny(body["size"]),
+			Quality:         stringFromAny(body["quality"]),
+			ResponseFormat:  stringFromAny(body["response_format"]),
+			ReferenceImages: refs,
+			BaseURL:         requestBaseURL(c),
+		}
+	} else {
+		if !strings.HasPrefix(contentType, "multipart/form-data") {
+			c.JSON(http.StatusBadRequest, gin.H{"detail": "images/edits requires multipart/form-data or application/json"})
+			return
+		}
+		if err := c.Request.ParseMultipartForm(64 << 20); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"detail": "invalid multipart form"})
+			return
+		}
+		refs := readMultipartImages(c, "image", "image[]")
+		request = service.V1ImageRequest{
+			Model:           c.PostForm("model"),
+			Prompt:          c.PostForm("prompt"),
+			N:               intFromAny(c.PostForm("n")),
+			Size:            c.PostForm("size"),
+			Quality:         c.PostForm("quality"),
+			ResponseFormat:  c.PostForm("response_format"),
+			ReferenceImages: refs,
+			BaseURL:         requestBaseURL(c),
+		}
+	}
+	if len(request.ReferenceImages) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "images/edits requires at least one image"})
 		return
 	}
-	if err := c.Request.ParseMultipartForm(64 << 20); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"detail": "invalid multipart form"})
-		return
+	if request.Model == "" || request.Model == "<nil>" {
+		request.Model = "gpt-image-2"
 	}
-	refs := readMultipartImages(c, "image", "image[]")
-	if len(refs) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"detail": "images/edits requires at least one image file"})
-		return
-	}
-	n, _ := strconv.Atoi(strings.TrimSpace(c.PostForm("n")))
-	resp, err := h.v1.PrepareImageRequest(c.Request.Context(), principal, service.V1ImageRequest{
-		Model:           c.PostForm("model"),
-		Prompt:          c.PostForm("prompt"),
-		N:               n,
-		Size:            c.PostForm("size"),
-		ResponseFormat:  c.PostForm("response_format"),
-		ReferenceImages: refs,
-		BaseURL:         requestBaseURL(c),
-	})
+	resp, err := h.v1.PrepareImageRequest(c.Request.Context(), principal, request)
 	if err != nil {
 		h.writeV1Error(c, err, resp)
 		return
 	}
 	c.JSON(http.StatusOK, openaiImageResponse(resp))
+}
+
+func intFromAny(value any) int {
+	switch v := value.(type) {
+	case float64:
+		return int(v)
+	case json.Number:
+		n, _ := strconv.Atoi(v.String())
+		return n
+	default:
+		n, _ := strconv.Atoi(strings.TrimSpace(fmt.Sprint(value)))
+		return n
+	}
+}
+
+func stringFromAny(value any) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func jsonImageReferences(body map[string]any) ([]string, error) {
+	refs := []string{}
+	for _, key := range []string{"images", "image", "image_url"} {
+		if value, ok := body[key]; ok {
+			if err := appendJSONImageReferences(&refs, value); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return refs, nil
+}
+
+func appendJSONImageReferences(out *[]string, value any) error {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case string:
+		text := strings.TrimSpace(v)
+		if text == "" {
+			return nil
+		}
+		if strings.HasPrefix(strings.ToLower(text), "data:image/") {
+			encoded := dataURLBase64(text)
+			if encoded == "" {
+				return errors.New("invalid data image URL")
+			}
+			*out = append(*out, encoded)
+			return nil
+		}
+		if strings.HasPrefix(strings.ToLower(text), "http://") || strings.HasPrefix(strings.ToLower(text), "https://") {
+			return errors.New("remote image_url is not supported; use a data URL or base64")
+		}
+		*out = append(*out, text)
+		return nil
+	case []any:
+		for _, item := range v {
+			if err := appendJSONImageReferences(out, item); err != nil {
+				return err
+			}
+		}
+		return nil
+	case map[string]any:
+		if source, ok := v["source"].(map[string]any); ok && strings.EqualFold(fmt.Sprint(source["type"]), "base64") {
+			return appendJSONImageReferences(out, source["data"])
+		}
+		for _, key := range []string{"b64_json", "base64", "image_url", "url"} {
+			if item, ok := v[key]; ok {
+				return appendJSONImageReferences(out, item)
+			}
+		}
+		return errors.New("image reference must include image_url, b64_json, or base64")
+	default:
+		return errors.New("invalid image reference")
+	}
 }
 
 // CreateVideo — OpenAI POST /v1/videos. Creates an async job and returns the
