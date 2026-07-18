@@ -230,6 +230,15 @@ def _random_name() -> tuple[str, str]:
     )
 
 
+def _profile_mailbox_name(first_name: str, last_name: str, index: int, max_length: int = 32) -> str:
+    """Build a provider-safe mailbox name that visibly matches the profile."""
+    allowed = set(string.ascii_lowercase + string.digits)
+    base = "".join(ch for ch in f"{first_name}{last_name}".lower() if ch in allowed) or "user"
+    suffix = str(max(1, int(index)))
+    keep = max(1, max_length - len(suffix))
+    return f"{base[:keep]}{suffix}"
+
+
 def _random_birthdate() -> str:
     return f"{random.randint(1996, 2006):04d}-{random.randint(1, 12):02d}-{random.randint(1, 28):02d}"
 
@@ -740,17 +749,20 @@ class PlatformRegistrar:
         return tokens
 
     def register(self, index: int) -> dict:
+        first_name, last_name = _random_name()
+        profile_name = f"{first_name} {last_name}"
+        mailbox_name = _profile_mailbox_name(first_name, last_name, index)
+        step(index, f"开通资料姓名: {profile_name}，邮箱名: {mailbox_name}")
         step(index, "开始创建邮箱")
         if config.get("mail", {}).get("use_proxy") and self.proxy:
             step(index, "邮箱接口使用注册代理", "yellow")
-        mailbox = create_mailbox(proxy=self.proxy)
+        mailbox = create_mailbox(username=mailbox_name, proxy=self.proxy)
         self.mailbox = mailbox
         email = str(mailbox.get("address") or "").strip()
         if not email:
             raise RuntimeError("邮箱服务未返回 address")
         step(index, f"邮箱创建完成: {email}")
         password = _random_password()
-        first_name, last_name = _random_name()
         step(index, f"账号凭据 邮箱={email} 密码={password}")
         self._platform_authorize(email, index)
         self._authorize_continue(email, index)
@@ -763,7 +775,7 @@ class PlatformRegistrar:
             raise RuntimeError("等待注册验证码超时")
         step(index, f"收到注册验证码: {code}")
         self._validate_otp(code, index)
-        continue_url = self._create_account(f"{first_name} {last_name}", _random_birthdate(), index)
+        continue_url = self._create_account(profile_name, _random_birthdate(), index)
         tokens = self._login_and_exchange_tokens(email, password, mailbox, continue_url, index)
         return {
             "email": email,

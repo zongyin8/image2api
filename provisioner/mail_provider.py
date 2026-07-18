@@ -312,9 +312,9 @@ class TempMailLolProvider(BaseMailProvider):
         if self.domain:
             domain, force_random_prefix = self._resolve_domain(random.choice(self.domain))
             payload["domain"] = domain
-            if force_random_prefix:
+            if force_random_prefix and not username:
                 payload["prefix"] = _random_mailbox_name()
-        if username and "prefix" not in payload:
+        if username:
             payload["prefix"] = username
         data = self._request("POST", "/inbox/create", payload=payload, expected=(200, 201))
         address = str(data.get("address") or "").strip()
