@@ -8,12 +8,16 @@ from .mail_provider import TempMailLolProvider
 
 
 class ProfileMailboxNameTests(unittest.TestCase):
-    def test_name_matches_profile_and_uses_task_number_for_uniqueness(self) -> None:
-        self.assertEqual(openai_register._profile_mailbox_name("Olivia", "Smith", 23), "oliviasmith23")
+    @patch.object(openai_register.secrets, "randbelow", return_value=1)
+    @patch.object(openai_register.secrets, "choice", side_effect=list("4827"))
+    def test_name_matches_profile_and_uses_three_to_five_random_digits(self, choice: Mock, randbelow: Mock) -> None:
+        self.assertEqual(openai_register._profile_mailbox_name("Olivia", "Smith"), "oliviasmith4827")
 
-    def test_name_is_provider_safe_and_bounded(self) -> None:
-        value = openai_register._profile_mailbox_name("Mary-Jane", "O'Williams", 123, max_length=18)
-        self.assertEqual(value, "maryjaneowillia123")
+    @patch.object(openai_register.secrets, "randbelow", return_value=2)
+    @patch.object(openai_register.secrets, "choice", side_effect=list("12345"))
+    def test_name_is_provider_safe_and_bounded(self, choice: Mock, randbelow: Mock) -> None:
+        value = openai_register._profile_mailbox_name("Mary-Jane", "O'Williams", max_length=18)
+        self.assertEqual(value, "maryjaneowill12345")
         self.assertEqual(len(value), 18)
         self.assertTrue(value.isalnum())
 
@@ -21,16 +25,18 @@ class ProfileMailboxNameTests(unittest.TestCase):
     @patch.object(openai_register, "_random_birthdate", return_value="2000-01-02")
     @patch.object(openai_register, "_random_password", return_value="Password1!")
     @patch.object(openai_register, "_random_name", return_value=("Olivia", "Smith"))
+    @patch.object(openai_register, "_profile_mailbox_name", return_value="oliviasmith4827")
     @patch.object(openai_register, "create_mailbox")
     def test_register_uses_the_same_name_for_mailbox_and_profile(
         self,
         create_mailbox: Mock,
+        _profile_mailbox_name: Mock,
         _random_name: Mock,
         _random_password: Mock,
         _random_birthdate: Mock,
         wait_for_code: Mock,
     ) -> None:
-        create_mailbox.return_value = {"address": "oliviasmith23@example.com"}
+        create_mailbox.return_value = {"address": "oliviasmith4827@example.com"}
         registrar = openai_register.PlatformRegistrar.__new__(openai_register.PlatformRegistrar)
         registrar.proxy = ""
         registrar.mailbox = None
@@ -47,7 +53,7 @@ class ProfileMailboxNameTests(unittest.TestCase):
 
         registrar.register(23)
 
-        create_mailbox.assert_called_once_with(username="oliviasmith23", proxy="")
+        create_mailbox.assert_called_once_with(username="oliviasmith4827", proxy="")
         registrar._create_account.assert_called_once_with("Olivia Smith", "2000-01-02", 23)
 
 

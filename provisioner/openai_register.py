@@ -230,11 +230,11 @@ def _random_name() -> tuple[str, str]:
     )
 
 
-def _profile_mailbox_name(first_name: str, last_name: str, index: int, max_length: int = 32) -> str:
+def _profile_mailbox_name(first_name: str, last_name: str, max_length: int = 32) -> str:
     """Build a provider-safe mailbox name that visibly matches the profile."""
     allowed = set(string.ascii_lowercase + string.digits)
     base = "".join(ch for ch in f"{first_name}{last_name}".lower() if ch in allowed) or "user"
-    suffix = str(max(1, int(index)))
+    suffix = "".join(secrets.choice(string.digits) for _ in range(3 + secrets.randbelow(3)))
     keep = max(1, max_length - len(suffix))
     return f"{base[:keep]}{suffix}"
 
@@ -751,7 +751,7 @@ class PlatformRegistrar:
     def register(self, index: int) -> dict:
         first_name, last_name = _random_name()
         profile_name = f"{first_name} {last_name}"
-        mailbox_name = _profile_mailbox_name(first_name, last_name, index)
+        mailbox_name = _profile_mailbox_name(first_name, last_name)
         step(index, f"开通资料姓名: {profile_name}，邮箱名: {mailbox_name}")
         step(index, "开始创建邮箱")
         if config.get("mail", {}).get("use_proxy") and self.proxy:
