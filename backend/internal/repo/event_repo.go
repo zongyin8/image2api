@@ -24,8 +24,8 @@ type EventListFilter struct {
 	UserID        string
 	UserIDs       []string // when set, keep ONLY rows whose user_id is in this list (admin 用户搜索)
 	Query         string   // free-text search over prompt / model / error (server-side, 跨页)
-	ExcludeSource string // when set, omit rows with this source (e.g. hide API-key "v1" usage from the customer logs page)
-	Source        string // when set, keep ONLY rows with this source (admin 来源 filter): "v1" (API key) / "user" (前台) / "admin" (测试模型)
+	ExcludeSource string   // when set, omit rows with this source (e.g. hide API-key "v1" usage from the customer logs page)
+	Source        string   // when set, keep ONLY rows with this source (admin 来源 filter): "v1" (API key) / "user" (前台) / "admin" (测试模型)
 	HasFile       bool     // when true, keep ONLY rows with a non-empty file (the 创作记录 gallery — paginates over real media)
 	ExcludeFiles  []string // when set, omit rows whose file is in this list (e.g. hide homepage showcase media from user galleries)
 	MediaOnly     bool     // when true, keep only rows that are pending or have a stored file — the 画图台 grid, so deleted works don't eat a slot
@@ -152,19 +152,17 @@ func (r *EventRepository) Stats(ctx context.Context) (*EventStats, error) {
 // reflects the caller's own history, not the whole site.
 func (r *EventRepository) StatsByUser(ctx context.Context, userID string) (*EventStats, error) {
 	stats := &EventStats{}
-	q := func() *gorm.DB {
-		return r.db.WithContext(ctx).Model(&model.EventLog{}).Where("user_id = ?", userID)
-	}
-	if err := q().Count(&stats.Total).Error; err != nil {
-		return nil, err
-	}
-	if err := q().Where("status = ?", "success").Count(&stats.Success).Error; err != nil {
-		return nil, err
-	}
-	if err := q().Where("status = ?", "failed").Count(&stats.Failed).Error; err != nil {
-		return nil, err
-	}
-	if err := q().Where("status = ?", "pending").Count(&stats.Pending).Error; err != nil {
+	err := r.db.WithContext(ctx).
+		Model(&model.EventLog{}).
+		Select(`
+			COUNT(*) AS total,
+			COUNT(*) FILTER (WHERE status = 'success') AS success,
+			COUNT(*) FILTER (WHERE status = 'failed') AS failed,
+			COUNT(*) FILTER (WHERE status = 'pending') AS pending
+		`).
+		Where("user_id = ?", userID).
+		Scan(stats).Error
+	if err != nil {
 		return nil, err
 	}
 	return stats, nil

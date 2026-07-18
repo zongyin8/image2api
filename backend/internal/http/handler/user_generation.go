@@ -252,19 +252,31 @@ func (h *UserGenerationHandler) Logs(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"detail": "failed to load logs"})
 		return
 	}
-	// Resolve user_id -> display name (mirrors admin.py / AdminReadHandler.Logs).
-	// Without this the log table showed every row as "匿名".
-	nameByID, err := h.admin.UserNameMap(c.Request.Context())
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"detail": "failed to load logs"})
-		return
-	}
-	// Resolve account_id -> account label so the log table can show which
-	// provider account fulfilled each generation under the user.
-	accountByID, err := h.admin.AccountNameMap(c.Request.Context())
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"detail": "failed to load logs"})
-		return
+	// Only the admin all-site view needs global user/account lookups. Loading
+	// every provider account for a user's own log page is unnecessary and gets
+	// expensive as the account pool grows.
+	nameByID := make(map[string]string, 1)
+	accountByID := map[string]string{}
+	if userID == "" {
+		nameByID, err = h.admin.UserNameMap(c.Request.Context())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"detail": "failed to load logs"})
+			return
+		}
+		accountByID, err = h.admin.AccountNameMap(c.Request.Context())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"detail": "failed to load logs"})
+			return
+		}
+	} else {
+		name := strings.TrimSpace(user.Name)
+		if name == "" {
+			name = strings.TrimSpace(user.Email)
+		}
+		if name == "" {
+			name = user.ID
+		}
+		nameByID[user.ID] = name
 	}
 	modelByID, err := h.admin.ModelNameMap(c.Request.Context())
 	if err != nil {

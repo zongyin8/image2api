@@ -52,6 +52,7 @@
     creditHistory: [],
     creditHistoryPage: 1,
     creditHistoryPageSize: 10,
+    creditHistoryTotal: 0,
     rechargeHistory: [],
     rechargeHistoryTotal: 0,
     rechargeHistoryPage: 1,
@@ -579,20 +580,19 @@
 
   // 使用日志：对齐 网关 UserLogsView —— 每行展示缩略图、模型、清晰度·比例、
   // 状态（成功/失败/生成中）、prompt（点击复制）、时间、扣费 cost。数据源 /admin/api/logs?source=user。
-  function renderHistory(items = state.creditHistory || []) {
+  function renderHistory(items = state.creditHistory || [], total = state.creditHistoryTotal || 0) {
     if (!els.historyList) return;
     if (!state.key) { els.historyList.innerHTML = '<p class="muted-text">登录后查看使用日志。</p>'; return; }
-    const allItems = Array.isArray(items) ? items : [];
-    state.creditHistory = allItems;
-    if (!allItems.length) { els.historyList.innerHTML = '<p class="muted-text">暂无使用日志。</p>'; return; }
+    const pageItems = Array.isArray(items) ? items : [];
+    state.creditHistory = pageItems;
+    state.creditHistoryTotal = Math.max(0, Number(total || 0));
+    if (!state.creditHistoryTotal) { els.historyList.innerHTML = '<p class="muted-text">暂无使用日志。</p>'; return; }
     const pageSize = Math.max(1, Number(state.creditHistoryPageSize || 10));
-    const totalPages = Math.max(1, Math.ceil(allItems.length / pageSize));
+    const totalPages = Math.max(1, Math.ceil(state.creditHistoryTotal / pageSize));
     state.creditHistoryPage = Math.min(Math.max(1, Number(state.creditHistoryPage || 1)), totalPages);
-    const start = (state.creditHistoryPage - 1) * pageSize;
-    const pageItems = allItems.slice(start, start + pageSize);
     // 网关 /admin/api/logs 的一行 = 一次生成：{ts,kind,status,model,prompt,cost,error,ratio,resolution,file}
     const rows = pageItems.map((x, i) => {
-      const idx = start + i;                    // 用于 data-copy-prompt 回查原始 prompt
+      const idx = i;                            // 用于 data-copy-prompt 回查当前页 prompt
       const cost = Number(x.cost || 0);
       const statusLabel = x.status === "success" ? "成功" : (x.status === "failed" ? "失败" : (x.status === "pending" ? "生成中" : (x.status || "")));
       const statusColor = x.status === "success" ? "#1f9d55" : (x.status === "failed" ? "#c0392b" : "#b26a00");
@@ -616,13 +616,12 @@
         : (promptText ? `<p data-copy-prompt="${idx}" title="点击复制提示词" style="margin:2px 0;font-size:12px;line-height:1.5;word-break:break-word;cursor:pointer;color:#334155">${escapeHtml(promptText.slice(0, 160))}</p>` : "");
       return `<div class="history-item log-item" style="display:flex;gap:10px;align-items:flex-start">${media}<div style="flex:1;min-width:0"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><strong style="font-size:13px">${escapeHtml(x.model || "生成")} · ${kindLabel}${spec ? " · " + escapeHtml(spec) : ""}</strong><span style="font-size:12px;color:${statusColor};flex:0 0 auto">${escapeHtml(statusLabel)}</span></div>${body}<div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#8a94a2;margin-top:2px"><span>${escapeHtml(timeStr)}</span><span>${x.status === "failed" ? "已退款" : (cost > 0 ? "扣费 " + escapeHtml(cost) + " 积分" : "")}</span></div></div></div>`;
     }).join("");
-    const pager = `<div class="history-pager"><span>每页 ${pageSize} 条，共 ${allItems.length} 条，第 ${state.creditHistoryPage}/${totalPages} 页</span><div><button type="button" data-history-page="prev" ${state.creditHistoryPage <= 1 ? "disabled" : ""}>上一页</button><button type="button" data-history-page="next" ${state.creditHistoryPage >= totalPages ? "disabled" : ""}>下一页</button></div></div>`;
+    const pager = `<div class="history-pager"><span>每页 ${pageSize} 条，共 ${state.creditHistoryTotal} 条，第 ${state.creditHistoryPage}/${totalPages} 页</span><div><button type="button" data-history-page="prev" ${state.creditHistoryPage <= 1 ? "disabled" : ""}>上一页</button><button type="button" data-history-page="next" ${state.creditHistoryPage >= totalPages ? "disabled" : ""}>下一页</button></div></div>`;
     els.historyList.innerHTML = rows + pager;
     els.historyList.querySelectorAll("[data-history-page]").forEach(btn => {
       btn.onclick = () => {
         const action = btn.getAttribute("data-history-page");
-        state.creditHistoryPage += action === "next" ? 1 : -1;
-        renderHistory(state.creditHistory);
+        void loadCreditHistory(state.creditHistoryPage + (action === "next" ? 1 : -1));
       };
     });
     // prompt 点击复制
@@ -640,14 +639,17 @@
     });
   }
 
-  async function loadCreditHistory() {
+  async function loadCreditHistory(page = 1) {
     if (!els.historyList || !state.key) { renderHistory([]); return; }
+    const pageSize = Math.max(1, Number(state.creditHistoryPageSize || 10));
+    const wantPage = typeof page === "number" ? Math.max(1, page) : 1;
     try {
       els.historyList.innerHTML = '<p class="muted-text">加载中...</p>';
       // 使用记录 = 网关 生成日志（按 token 自动作用域到当前用户）。source=user 只看门户生成，不含 API。
-      const data = await api("/admin/api/logs?limit=200&source=user", { headers: authHeaders() });
-      state.creditHistoryPage = 1;
-      renderHistory(data.data || []);
+      const offset = (wantPage - 1) * pageSize;
+      const data = await api(`/admin/api/logs?limit=${pageSize}&offset=${offset}&source=user`, { headers: authHeaders() });
+      state.creditHistoryPage = wantPage;
+      renderHistory(data.data || [], data.total ?? 0);
     } catch (e) {
       els.historyList.innerHTML = `<p class="message error">${escapeHtml(e.message || String(e))}</p>`;
     }
