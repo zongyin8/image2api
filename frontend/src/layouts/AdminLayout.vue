@@ -231,6 +231,7 @@ watch(() => route.path, () => {
     color: var(--fg);
     background: var(--surface-2);
   }
+  .admin-link, .admin-sublink { min-height: 2.75rem; }
   .admin-header { padding-left: max(1rem, env(safe-area-inset-left)); }
 }
 </style>
