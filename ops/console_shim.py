@@ -338,6 +338,17 @@ def ep_credit_delete(code):
     return (200 if st < 400 else st), {"ok": st < 400, "detail": d.get("detail")}
 
 
+def generation_credit_breakdown(row):
+    """Map image2api's pre-charge audit fields to the console's net-cost fields."""
+    cost = row.get("cost")
+    refunded = row.get("refunded") is True
+    return {
+        "credit_cost": cost,
+        "net_credit_cost": 0 if refunded else cost,
+        "refund_cost": cost if refunded else 0,
+    }
+
+
 def ep_logs_get(qs):
     t = (qs.get("type") or [""])[0].strip().lower()
     path = "/admin/api/logs?limit=800&scope=all"  # 全站日志+800条(控制台用户名搜索是前端过滤,窗口大点才搜得到老记录)
@@ -351,15 +362,14 @@ def ep_logs_get(qs):
     data = d.get("data") or []
     items = []
     for r in data:
+        credit = generation_credit_breakdown(r)
         detail = {
             "model": r.get("model") or "",
             "key_name": r.get("user_name") or r.get("user_id") or "",
             "key_id": r.get("user_id") or "",
             "status": r.get("status") or "",
             "duration_ms": r.get("elapsed_ms"),
-            "credit_cost": r.get("cost"),
-            "net_credit_cost": r.get("cost"),
-            "refund_cost": 0,
+            **credit,
             "error": r.get("error") or "",
             "error_message": r.get("error") or "",
             "account_email": r.get("account") or "",
