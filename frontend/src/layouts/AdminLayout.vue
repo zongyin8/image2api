@@ -7,6 +7,7 @@ import { site } from '../site'
 import { isDark, toggleTheme } from '../theme'
 
 const route = useRoute()
+const mobileMenuOpen = ref(false)
 
 const tabs = [
   { label: '概览',    to: '/admin/overview', icon: 'overview' },
@@ -39,6 +40,7 @@ function toggleGroup(label) {
   openGroups.value = s
 }
 watch(() => route.path, () => {
+  mobileMenuOpen.value = false
   for (const t of tabs) {
     if (t.children && groupActive(t) && !openGroups.value.has(t.label)) {
       const s = new Set(openGroups.value); s.add(t.label); openGroups.value = s
@@ -48,9 +50,16 @@ watch(() => route.path, () => {
 </script>
 
 <template>
-  <div class="theme-x h-screen flex bg-[var(--app-bg)] text-[color:var(--fg-2)] selection:bg-violet-400/30 overflow-hidden">
+  <div class="admin-shell theme-x h-screen flex bg-[var(--app-bg)] text-[color:var(--fg-2)] selection:bg-violet-400/30 overflow-hidden">
+    <button v-if="mobileMenuOpen" type="button" aria-label="关闭管理菜单"
+            class="admin-sidebar-backdrop" @click="mobileMenuOpen = false"></button>
+
     <!-- ===== Sidebar ===== -->
-    <aside class="w-60 shrink-0 border-r border-[color:var(--hairline)] bg-[var(--surface)] backdrop-blur-md flex flex-col">
+    <aside class="admin-sidebar w-60 shrink-0 border-r border-[color:var(--hairline)] bg-[var(--surface)] backdrop-blur-md flex flex-col"
+           :class="mobileMenuOpen && 'is-open'">
+      <button type="button" class="admin-sidebar-close" aria-label="关闭管理菜单" @click="mobileMenuOpen = false">
+        <Icon name="close" class="w-5 h-5" />
+      </button>
       <router-link to="/" class="h-16 flex items-center gap-2.5 px-5 border-b border-[color:var(--hairline)] group">
         <img v-if="site.logo" :src="site.logo" :alt="site.title" class="w-8 h-8 rounded-[10px] object-contain shadow-lg shadow-violet-500/20 ring-1 ring-white/10" />
         <Logo v-else :size="32" class="rounded-[10px] shadow-lg shadow-violet-500/20 ring-1 ring-white/10" />
@@ -117,14 +126,18 @@ watch(() => route.path, () => {
              style="background: radial-gradient(circle, #f43f5e, transparent 60%); filter: blur(110px)"></div>
       </div>
 
-      <header class="relative z-10 h-14 shrink-0 border-b border-[color:var(--hairline)] bg-[var(--app-bg)]/70 backdrop-blur-md flex items-center px-8">
-        <div class="text-[10px] uppercase tracking-[0.25em] text-[color:var(--fg-3)] font-medium mr-3">Admin</div>
-        <div class="text-[color:var(--fg-faint)] mr-3">/</div>
+      <header class="admin-header relative z-10 h-14 shrink-0 border-b border-[color:var(--hairline)] bg-[var(--app-bg)]/70 backdrop-blur-md flex items-center px-4 md:px-8">
+        <button type="button" class="admin-menu-trigger" aria-label="打开管理菜单" :aria-expanded="mobileMenuOpen"
+                @click="mobileMenuOpen = true">
+          <Icon name="menu" class="w-5 h-5" />
+        </button>
+        <div class="hidden md:block text-[10px] uppercase tracking-[0.25em] text-[color:var(--fg-3)] font-medium mr-3">Admin</div>
+        <div class="hidden md:block text-[color:var(--fg-faint)] mr-3">/</div>
         <h1 class="text-sm font-semibold tracking-tight text-[color:var(--fg)]">{{ currentLabel }}</h1>
       </header>
 
       <main :class="['theme-text flex-1 overflow-y-auto overscroll-y-none relative z-10', { 'public-dark': isDark }]">
-        <div class="px-8 py-7">
+        <div class="admin-content px-4 py-4 md:px-8 md:py-7">
           <router-view v-slot="{ Component }">
             <transition name="fade" mode="out-in">
               <component :is="Component" />
@@ -167,4 +180,57 @@ watch(() => route.path, () => {
 .fade-enter-active, .fade-leave-active { transition: opacity 0.15s ease, transform 0.15s ease; }
 .fade-enter-from { opacity: 0; transform: translateY(4px); }
 .fade-leave-to { opacity: 0; }
+
+.admin-menu-trigger,
+.admin-sidebar-close,
+.admin-sidebar-backdrop { display: none; }
+
+@media (max-width: 767px) {
+  .admin-sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 60;
+    width: min(18rem, 86vw);
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    box-shadow: 18px 0 40px rgb(0 0 0 / 0.25);
+  }
+  .admin-sidebar.is-open { transform: translateX(0); }
+  .admin-sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    border-radius: 0;
+    background: rgb(2 6 23 / 0.58);
+    backdrop-filter: blur(2px);
+  }
+  .admin-sidebar-close {
+    display: grid;
+    place-items: center;
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    z-index: 1;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.625rem;
+    color: var(--fg-2);
+    background: var(--surface-2);
+  }
+  .admin-menu-trigger {
+    display: grid;
+    place-items: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    margin-right: 0.75rem;
+    border-radius: 0.625rem;
+    color: var(--fg);
+    background: var(--surface-2);
+  }
+  .admin-header { padding-left: max(1rem, env(safe-area-inset-left)); }
+}
 </style>
