@@ -351,7 +351,17 @@ def generation_credit_breakdown(row):
 
 def ep_logs_get(qs):
     t = (qs.get("type") or [""])[0].strip().lower()
-    path = "/admin/api/logs?limit=800&scope=all"  # 全站日志+800条(控制台用户名搜索是前端过滤,窗口大点才搜得到老记录)
+    try:
+        limit = int((qs.get("limit") or ["200"])[0])
+    except (TypeError, ValueError):
+        limit = 200
+    limit = max(1, min(limit, 5000))
+    user = (qs.get("user") or [""])[0].strip()
+    path = "/admin/api/logs?limit=%d&scope=all" % limit
+    # Filter before pagination. A global window can otherwise hide older rows
+    # even when the cluster console is explicitly viewing one user.
+    if user:
+        path += "&user=" + quote(user)
     # image2api 的日志本身就是"生成调用"：call(默认)/"" = 全部；只有 image/video 是真 kind；
     # account/admin/register 是 ChatGPT2API 分类，image2api 无对应，返回空。
     if t in ("account", "admin", "register"):
