@@ -74,6 +74,17 @@
     } catch {}
   }
 
+  function clearExpiredSession() {
+    setSessionToken("");
+    state.identity = null;
+    state.apiKeyPlain = "";
+    state.apiKeyInfo = null;
+    updateAuthUI();
+    setAuthTab("login");
+    setAuthInlineMsg("登录信息已过期，请重新登录", "error");
+    if (els.loginDialog && !els.loginDialog.open) els.loginDialog.showModal();
+  }
+
   const els = {
     loginBtn: $("loginBtn"), registerBtn: $("registerBtn"), logoutBtn: $("logoutBtn"), authState: $("authState"),
     loginDialog: $("loginDialog"), keyInput: $("keyInput"), loginUsernameInput: $("loginUsernameInput"), loginPasswordInput: $("loginPasswordInput"), saveKeyBtn: $("saveKeyBtn"), loginTabBtn: $("loginTabBtn"), registerTabBtn: $("registerTabBtn"), loginPane: $("loginPane"), registerPane: $("registerPane"), registerSubmitBtn: $("registerSubmitBtn"), registerUsernameInput: $("registerUsernameInput"), registerPasswordInput: $("registerPasswordInput"), registerPasswordConfirmInput: $("registerPasswordConfirmInput"), registerNameInput: $("registerNameInput"), captchaAnswerInput: $("captchaAnswerInput"), refreshCaptchaBtn: $("refreshCaptchaBtn"), captchaQuestion: $("captchaQuestion"), registerResult: $("registerResult"), authInlineMsg: $("authInlineMsg"),
@@ -565,7 +576,8 @@
       return state.identity;
     } catch (e) {
       state.identity = null;
-      updateAuthUI();
+      if (e?.status === 401) clearExpiredSession();
+      else updateAuthUI();
       throw e;
     }
   }
