@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -52,9 +53,16 @@ func (h *AuthHandler) RegisterCaptcha(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": "invalid request body"})
 		return
 	}
-	if err := h.enforceRateLimit(c, "auth:register:ip:"+clientIP(c), 10, time.Hour); err != nil {
+	reserved, ok := h.reserveRegistrationLimits(c, clientIP(c))
+	if !ok {
 		return
 	}
+	committed := false
+	defer func() {
+		if !committed {
+			h.rollbackRegistrationLimits(c, reserved)
+		}
+	}()
 	if !h.captcha.Verify(c.Request.Context(), body.CaptchaID, body.CaptchaAnswer) {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": "验证码错误或已过期"})
 		return
@@ -65,6 +73,7 @@ func (h *AuthHandler) RegisterCaptcha(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return
 	}
+	committed = true
 	h.writeSession(c, token, session, user)
 }
 
@@ -123,9 +132,16 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	if username == "" {
 		username = strings.TrimSpace(body.Name)
 	}
-	if err := h.enforceRateLimit(c, "auth:register:ip:"+clientIP(c), 10, time.Hour); err != nil {
+	reserved, ok := h.reserveRegistrationLimits(c, clientIP(c))
+	if !ok {
 		return
 	}
+	committed := false
+	defer func() {
+		if !committed {
+			h.rollbackRegistrationLimits(c, reserved)
+		}
+	}()
 	emailCode := strings.TrimSpace(body.EmailCode)
 	if emailCode == "" {
 		emailCode = strings.TrimSpace(body.Code)
@@ -143,6 +159,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return
 	}
+	committed = true
 	h.writeSession(c, token, session, user)
 }
 
@@ -352,14 +369,80 @@ func writeLoginLocked(c *gin.Context, err error) bool {
 }
 
 func clientIP(c *gin.Context) string {
+	// Production Nginx overwrites X-Real-IP with its socket peer, while an
+	// inbound X-Forwarded-For prefix can be supplied by the client. Prefer the
+	// trusted overwritten header so a registrant cannot rotate a forged XFF.
+	if real := strings.TrimSpace(c.GetHeader("X-Real-Ip")); net.ParseIP(real) != nil {
+		return net.ParseIP(real).String()
+	}
 	if fwd := strings.TrimSpace(c.GetHeader("X-Forwarded-For")); fwd != "" {
 		parts := strings.Split(fwd, ",")
-		return strings.TrimSpace(parts[0])
-	}
-	if real := strings.TrimSpace(c.GetHeader("X-Real-Ip")); real != "" {
-		return real
+		if parsed := net.ParseIP(strings.TrimSpace(parts[0])); parsed != nil {
+			return parsed.String()
+		}
 	}
 	return c.ClientIP()
+}
+
+type registrationLimitSpec struct {
+	bucket  string
+	limit   int64
+	window  time.Duration
+	message string
+}
+
+func registrationLimitSpecs(ip string) []registrationLimitSpec {
+	return []registrationLimitSpec{
+		{
+			bucket:  "auth:register:success:10m:ip:" + ip,
+			limit:   1,
+			window:  10 * time.Minute,
+			message: "同一IP 10分钟内只能注册1个账号，请稍后再试",
+		},
+		{
+			bucket:  "auth:register:success:24h:ip:" + ip,
+			limit:   3,
+			window:  24 * time.Hour,
+			message: "同一IP 24小时内最多注册3个账号，请稍后再试",
+		},
+	}
+}
+
+func (h *AuthHandler) reserveRegistrationLimits(c *gin.Context, ip string) ([]string, bool) {
+	if h.limiter == nil {
+		return nil, true
+	}
+	reserved := make([]string, 0, 2)
+	for _, spec := range registrationLimitSpecs(ip) {
+		result, err := h.limiter.Allow(c.Request.Context(), spec.bucket, spec.limit, spec.window)
+		if err != nil {
+			h.rollbackRegistrationLimits(c, reserved)
+			c.JSON(http.StatusInternalServerError, gin.H{"detail": "rate limiter unavailable"})
+			return nil, false
+		}
+		if !result.Allowed {
+			_ = h.limiter.Rollback(c.Request.Context(), spec.bucket)
+			h.rollbackRegistrationLimits(c, reserved)
+			retry := int(result.RetryAfter.Seconds())
+			if retry < 1 {
+				retry = 1
+			}
+			c.Header("Retry-After", strconv.Itoa(retry))
+			c.JSON(http.StatusTooManyRequests, gin.H{"detail": spec.message})
+			return nil, false
+		}
+		reserved = append(reserved, spec.bucket)
+	}
+	return reserved, true
+}
+
+func (h *AuthHandler) rollbackRegistrationLimits(c *gin.Context, buckets []string) {
+	if h.limiter == nil {
+		return
+	}
+	for _, bucket := range buckets {
+		_ = h.limiter.Rollback(c.Request.Context(), bucket)
+	}
 }
 
 func (h *AuthHandler) enforceRateLimit(c *gin.Context, bucket string, limit int64, window time.Duration) error {

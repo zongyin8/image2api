@@ -12,6 +12,17 @@ import (
 
 var ErrRateLimited = errors.New("rate limited")
 
+var rollbackRateLimitScript = redis.NewScript(`
+local n = redis.call('GET', KEYS[1])
+if not n then return 0 end
+n = tonumber(n)
+if n <= 1 then
+  redis.call('DEL', KEYS[1])
+  return 0
+end
+return redis.call('DECR', KEYS[1])
+`)
+
 type RateLimitService struct {
 	redis  *redis.Client
 	prefix string
@@ -76,4 +87,15 @@ func (s *RateLimitService) Enforce(ctx context.Context, bucket string, limit int
 		retry = 1
 	}
 	return fmt.Errorf("%w: 请稍后再试（%d 秒后）", ErrRateLimited, retry)
+}
+
+// Rollback releases a reservation made by Allow when the guarded operation did
+// not complete. The Lua script preserves the bucket TTL and is safe if the key
+// expired between reservation and rollback.
+func (s *RateLimitService) Rollback(ctx context.Context, bucket string) error {
+	if s == nil || s.redis == nil {
+		return nil
+	}
+	key := s.prefix + strings.TrimSpace(bucket)
+	return rollbackRateLimitScript.Run(ctx, s.redis, []string{key}).Err()
 }
