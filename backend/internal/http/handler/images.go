@@ -47,24 +47,27 @@ func (h *ImageHandler) Serve(c *gin.Context) {
 		origRel = service.LastFrameOrigKey(rel)
 	}
 
-	public, err := h.imageAccess.IsPublic(c.Request.Context(), origRel)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"detail": "failed to authorize image"})
-		return
-	}
-	if !public {
-		authorized, err := h.imageAccess.IsAuthorized(
-			c.Request.Context(),
-			readCookie(c, h.cfg.SessionCookieName),
-			user,
-		)
+	signed := service.VerifyStoredImageURL(rel, c.Query("exp"), c.Query("sig"), h.cfg.ImageURLSigningKey)
+	if !signed {
+		public, err := h.imageAccess.IsPublic(c.Request.Context(), origRel)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"detail": "failed to authorize image"})
 			return
 		}
-		if !authorized {
-			c.JSON(http.StatusUnauthorized, gin.H{"detail": "需要登录后访问"})
-			return
+		if !public {
+			authorized, err := h.imageAccess.IsAuthorized(
+				c.Request.Context(),
+				readCookie(c, h.cfg.SessionCookieName),
+				user,
+			)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"detail": "failed to authorize image"})
+				return
+			}
+			if !authorized {
+				c.JSON(http.StatusUnauthorized, gin.H{"detail": "需要登录后访问"})
+				return
+			}
 		}
 	}
 

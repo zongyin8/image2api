@@ -536,17 +536,21 @@ func (s *AdminReadService) Images(ctx context.Context, limit, offset int, kind s
 	}
 	out := make([]map[string]any, 0, len(page))
 	for _, item := range page {
+		imageURL := SignStoredImageURL(item.Name, s.cfg.ImageURLSigningKey, s.cfg.ImageURLTTL)
+		thumbnailURL := SignStoredImageURL(ThumbKey(item.Name), s.cfg.ImageURLSigningKey, s.cfg.ImageURLTTL)
 		row := map[string]any{
-			"name":       item.Name,
-			"size":       item.Size,
-			"mtime":      item.MTime,
-			"kind":       item.Kind,
-			"prompt":     "",
-			"model":      "",
-			"resolution": "",
-			"ratio":      "",
-			"duration":   "",
-			"deai":       false,
+			"name":          item.Name,
+			"url":           imageURL,
+			"thumbnail_url": thumbnailURL,
+			"size":          item.Size,
+			"mtime":         item.MTime,
+			"kind":          item.Kind,
+			"prompt":        "",
+			"model":         "",
+			"resolution":    "",
+			"ratio":         "",
+			"duration":      "",
+			"deai":          false,
 		}
 		if event, ok := index[item.Name]; ok {
 			row["prompt"] = event.Prompt

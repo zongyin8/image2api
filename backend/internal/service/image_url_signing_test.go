@@ -57,3 +57,30 @@ func TestSignedImageURLDisabledWithoutKey(t *testing.T) {
 		t.Fatalf("unsigned deployment changed URL: %q", got)
 	}
 }
+
+func TestStoredImageURLRoundTrip(t *testing.T) {
+	signed := SignStoredImageURL("user-1/image name+.png", "test-secret", time.Hour)
+	parsed, err := url.Parse(signed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Path != "/images/user-1/image name+.png" {
+		t.Fatalf("path = %q", parsed.Path)
+	}
+	if !VerifyStoredImageURL(
+		"user-1/image name+.png",
+		parsed.Query().Get("exp"),
+		parsed.Query().Get("sig"),
+		"test-secret",
+	) {
+		t.Fatal("valid stored image signature was rejected")
+	}
+	if VerifyStoredImageURL(
+		"user-2/image name+.png",
+		parsed.Query().Get("exp"),
+		parsed.Query().Get("sig"),
+		"test-secret",
+	) {
+		t.Fatal("stored image signature was accepted for another object")
+	}
+}

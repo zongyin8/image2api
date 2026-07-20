@@ -53,3 +53,20 @@ func imageURLSignature(resource string, expires int64, key string) string {
 	_, _ = mac.Write([]byte(strconv.FormatInt(expires, 10)))
 	return hex.EncodeToString(mac.Sum(nil))
 }
+
+// SignStoredImageURL creates a short-lived URL for one exact RustFS object key.
+func SignStoredImageURL(rel, key string, ttl time.Duration) string {
+	rel = strings.Trim(strings.TrimSpace(rel), "/")
+	parts := strings.SplitN(rel, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return ""
+	}
+	rawURL := "/images/" + url.PathEscape(parts[0]) + "/" + url.PathEscape(parts[1])
+	return signImageURL(rawURL, "stored:"+rel, key, ttl, time.Now())
+}
+
+// VerifyStoredImageURL validates a URL created by SignStoredImageURL.
+func VerifyStoredImageURL(rel, expires, signature, key string) bool {
+	rel = strings.Trim(strings.TrimSpace(rel), "/")
+	return verifyImageURLSignature("stored:"+rel, expires, signature, key, time.Now())
+}

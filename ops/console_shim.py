@@ -422,7 +422,16 @@ def ep_images_get(qs):
         if end and day and day > end:
             continue
         owner = name.split("/")[0] if "/" in name else ""
-        url = IMG_PUBLIC + "/images/" + name
+        url = str(it.get("url") or "")
+        thumbnail_url = str(it.get("thumbnail_url") or "")
+        if url.startswith("/"):
+            url = IMG_PUBLIC + url
+        if thumbnail_url.startswith("/"):
+            thumbnail_url = IMG_PUBLIC + thumbnail_url
+        if not url:
+            url = IMG_PUBLIC + "/images/" + name
+        if not thumbnail_url:
+            thumbnail_url = url
         items.append({
             "rel": name,
             "created_at": ca,
@@ -430,7 +439,7 @@ def ep_images_get(qs):
             "owner_id": owner,
             "is_admin_owner": (owner == "admin"),
             "url": url,
-            "thumbnail_url": url,
+            "thumbnail_url": thumbnail_url,
         })
     return 200, {"items": items}
 
