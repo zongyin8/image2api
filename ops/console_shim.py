@@ -478,11 +478,25 @@ def ep_users_get():
 
 def ep_user_post(uid, body):
     b = body or {}
-    if uid:  # 编辑/充值：控制台把新额度当绝对值传(quota)，映射为设定 credits
+    if uid:
+        # 集群控制台一次会提交名称、状态、密码和额度。资料字段走 PATCH，
+        # 额度再走专用接口；不能在看到 quota 后提前返回，否则密码会被静默忽略。
+        patch = {}
+        if "name" in b:
+            patch["name"] = str(b.get("name") or "").strip()
+        if "enabled" in b:
+            patch["status"] = "active" if b.get("enabled") else "disabled"
+        if str(b.get("password") or "").strip():
+            patch["password"] = str(b.get("password") or "")
+        if patch:
+            st, d = i2a("PATCH", "/admin/api/users/" + quote(uid), patch)
+            if st >= 400:
+                return st, {"ok": False, "detail": d.get("detail")}
         if "quota" in b:
             st, d = i2a("POST", "/admin/api/users/" + quote(uid) + "/credits",
                         {"set": int(b.get("quota") or 0)})
-            return (200 if st < 400 else st), {"ok": st < 400, "detail": d.get("detail")}
+            if st >= 400:
+                return st, {"ok": False, "detail": d.get("detail")}
         return 200, {"ok": True}
     # 新建用户(集群控制台少用；best-effort)
     st, d = i2a("POST", "/admin/api/users", {
