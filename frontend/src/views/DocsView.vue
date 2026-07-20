@@ -46,13 +46,15 @@ function priceOf(m) {
 const imageParams = [
   ['model', 'string', '必填', '模型名(别名优先),见上表(图像)'],
   ['prompt', 'string', '必填', '文字描述'],
-  ['size', 'string', '可选', '宽x高,如 "1024x1024"。同时决定「比例」+「分辨率档」(按长边)。具体怎么填见下方对照表;留空 = 1:1 · 2K'],
+  ['size', 'string', '可选', '传宽x高,不是直接传比例。宽高比决定比例,长边决定 1K/2K/4K 档位;不要传 auto,自动选择时直接省略'],
+  ['quality', 'string', '可选', '仅未传 size 时生效:不传=默认请求 2K,low=1K,medium=2K,high=4K,auto=模型最低可用档'],
 ]
 const editParams = [
   ['image', 'file', '必填', '输入图;多张参考图重复 image[] 字段(multipart 文件上传)'],
   ['prompt', 'string', '必填', '编辑/参考描述'],
   ['model', 'string', '必填', '模型名(别名优先,需支持图生图)'],
   ['size', 'string', '可选', '同图像:决定比例 + 分辨率档(见下方对照表)'],
+  ['quality', 'string', '可选', '同图像:仅未传 size 时选择分辨率档'],
 ]
 const videoParams = [
   ['model', 'string', '必填', '模型名(别名优先),见上表(视频)'],
@@ -350,11 +352,11 @@ async function copy(text) {
 
     <!-- size 对照表(课时表)—— 解决"传错分辨率" -->
     <section>
-      <h2 class="text-lg font-semibold mb-1">图像分辨率对照表 · <code class="text-white/70 text-sm">size</code> 该传什么</h2>
+      <h2 class="text-lg font-semibold mb-1">图像比例与分辨率对照表 · <code class="text-white/70 text-sm">size</code> 该传什么</h2>
       <p class="text-xs text-white/45 mb-3">
-        左边选比例,上面选分辨率档,交叉格里就是 <code class="text-white/70">size</code> 要传的值(直接复制)。
-        没有 <code class="text-white/70">quality</code> 参数,图像分辨率只看 <code class="text-white/70">size</code> 的<strong class="text-white/70">长边</strong>。
-        档位必须是该模型支持的(见上方「可用模型」的分辨率列),不支持会自动回退到该模型最低档。
+        <code class="text-white/70">size</code> 传的是<strong class="text-white/70">宽x高</strong>,系统用宽高比推断比例,用长边判断分辨率档。
+        左边选比例,上面选档位,交叉格里就是可直接复制的 <code class="text-white/70">size</code>。
+        同时传 <code class="text-white/70">size</code> 和 <code class="text-white/70">quality</code> 时以 size 为准;模型不支持目标档位时会取最接近的可用档位。
       </p>
       <div class="card overflow-hidden">
         <table class="w-full text-sm">
@@ -376,7 +378,7 @@ async function copy(text) {
       </div>
       <p class="text-xs text-white/40 mt-2">
         例:想要 <strong class="text-white/70">2K 的 16:9 横图</strong> → <code class="text-white/70">"size": "2048x1152"</code>。
-        留空 size = 默认 <strong class="text-white/70">1:1 · 2K</strong>。
+        不传 size 时比例默认 <strong class="text-white/70">1:1</strong>,可用 <code class="text-white/70">quality</code> 选档:不传=默认请求 2K,low=1K,medium=2K,high=4K,auto=模型最低可用档。
       </p>
 
       <!-- 视频分辨率(720p / 1080p,按短边判) -->
@@ -433,7 +435,7 @@ async function copy(text) {
           <li>完成后 <code class="text-white/85 font-mono">GET /v1/videos/{id}/content</code> 返回 <strong class="text-white/90">mp4 原始二进制</strong>(非 base64、非 URL)</li>
         </ol>
         <p><strong class="text-white/90">计费(预扣)</strong>:生成<strong class="text-white/90">前</strong>按上表价格从你的 Key 账号预扣积分;图像或视频上游失败会自动退回 —— 失败不扣费。</p>
-        <p><strong class="text-white/90">参数映射</strong>:<code class="text-white/70">size</code>(宽x高)同时决定<strong class="text-white/90">比例 + 分辨率档</strong>(长边:&lt;1800→1K · 1800–3499→2K · ≥3500→4K);未给 size 时可用 <code class="text-white/70">quality</code>(low / medium / high)选择模型可用档位。<code class="text-white/70">seconds</code>→视频时长。档位须落在模型定价表内,余额不足返回 402。</p>
+        <p><strong class="text-white/90">参数映射</strong>:<code class="text-white/70">size</code>(宽x高)同时决定<strong class="text-white/90">比例 + 分辨率档</strong>(长边:&lt;1800→1K · 1800–3499→2K · ≥3500→4K),不是直接填写比例;未给 size 时才使用 <code class="text-white/70">quality</code>(low / medium / high / auto)选择模型可用档位,同时传时以 size 为准。<code class="text-white/70">seconds</code>→视频时长。档位须落在模型定价表内,余额不足返回 402。</p>
         <div class="pt-2 grid sm:grid-cols-2 gap-2 text-xs">
           <div class="flex items-center gap-2"><span class="badge-err">401</span> Key 无效 / 上游需重新授权</div>
           <div class="flex items-center gap-2"><span class="badge-err">404</span> 未知 model / 视频任务不存在</div>

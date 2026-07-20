@@ -494,7 +494,7 @@
           <div class="api-example" style="margin-top:8px">
             <div class="api-example-head" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><strong>① 文生图 · gpt-image-2</strong><button id="copyImgExample" type="button" class="secondary-btn" style="padding:3px 12px;font-size:12px">复制</button></div>
             <pre id="imgExamplePre" style="white-space:pre;overflow:auto"></pre>
-            <p class="muted-text" style="margin-top:8px;line-height:1.8"><b>把 <code>$API_KEY</code> 换成你的密钥</b>（用上方「一键复制密钥」获取，示例里不显示你的真实密钥）。<br><b>size 尺寸</b>：<code>1024x1024</code> 方形 · <code>1536x1024</code> 横版 · <code>1024x1536</code> 竖版 · <code>auto</code> 自适应。<br><b>quality 清晰度</b>：不传 或 <code>low</code> = 默认 1K · <code>medium</code> = 高清 2K · <code>high</code> = 超清 4K（2K/4K 按档加收积分）。</p>
+            <p class="muted-text" style="margin-top:8px;line-height:1.8"><b>把 <code>$API_KEY</code> 换成你的密钥</b>（用上方「一键复制密钥」获取，示例里不显示你的真实密钥）。<br><b>size 比例与分辨率</b>：传 <code>宽x高</code>，不是直接传比例。宽高比决定画面比例，长边决定档位：小于 <code>1800</code> = 1K · <code>1800–3499</code> = 2K · 大于等于 <code>3500</code> = 4K。例如 <code>1024x1024</code> = 1:1 · 1K，<code>1536x1024</code> = 3:2 · 1K，<code>2048x1152</code> = 16:9 · 2K。不要传 <code>auto</code>，需要自动选择时直接省略 <code>size</code>。<br><b>quality 清晰度</b>：仅在未传 <code>size</code> 时生效。不传 = 默认请求 2K · <code>low</code> = 1K · <code>medium</code> = 2K · <code>high</code> = 4K · <code>auto</code> = 模型最低可用档；模型不支持目标档位时会取最接近的可用档位。<b>同时传 <code>size</code> 和 <code>quality</code> 时，以 <code>size</code> 为准。</b></p>
           </div>
         </div>
       </div>`;
@@ -555,7 +555,7 @@
     const IMG_EXAMPLE = `curl ${apiOrigin}/v1/images/generations \\
   -H "Authorization: Bearer $API_KEY" \\
   -H "Content-Type: application/json" \\
-  -d '{"model":"gpt-image-2","prompt":"一只戴墨镜的柴犬，工作室灯光","size":"1024x1024","quality":"medium"}'`;
+  -d '{"model":"gpt-image-2","prompt":"一只戴墨镜的柴犬，工作室灯光","size":"1024x1024"}'`;
     const imgPre = document.getElementById("imgExamplePre");
     if (imgPre) imgPre.textContent = IMG_EXAMPLE;
     const copyImgBtn = document.getElementById("copyImgExample");
