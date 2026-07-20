@@ -91,9 +91,9 @@ func RequireAdminSession(auth *service.AuthService, cfg *config.Config) gin.Hand
 // A validated Bearer token is bridged back into the HttpOnly cookie when the
 // browser no longer has one.
 func refreshSessionCookie(c *gin.Context, cfg *config.Config, cookieToken string) {
-	token := strings.TrimSpace(cookieToken)
+	token := service.ParseBearer(c.GetHeader("Authorization"))
 	if token == "" {
-		token = service.ParseBearer(c.GetHeader("Authorization"))
+		token = strings.TrimSpace(cookieToken)
 	}
 	if token == "" {
 		return
