@@ -708,7 +708,7 @@ func (h *V1Handler) writeV1Error(c *gin.Context, err error, payload map[string]a
 	case errors.Is(err, service.ErrUnsupportedParams), errors.Is(err, service.ErrBannedPrompt):
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 	case errors.Is(err, service.ErrInsufficientFunds):
-		c.JSON(http.StatusPaymentRequired, gin.H{"detail": err.Error()})
+		c.JSON(http.StatusPaymentRequired, gin.H{"detail": "积分不足"})
 	case errors.Is(err, service.ErrReferenceTooLarge):
 		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"detail": err.Error()})
 	case errors.Is(err, service.ErrNoProviderAccount):
