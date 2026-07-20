@@ -46,15 +46,15 @@ function priceOf(m) {
 const imageParams = [
   ['model', 'string', '必填', '模型名(别名优先),见上表(图像)'],
   ['prompt', 'string', '必填', '文字描述'],
-  ['size', 'string', '可选', '传宽x高,不是直接传比例。宽高比决定比例,长边决定 1K/2K/4K 档位;不要传 auto,自动选择时直接省略'],
-  ['quality', 'string', '可选', '仅未传 size 时生效:不传=默认请求 2K,low=1K,medium=2K,high=4K,auto=模型最低可用档'],
+  ['size', 'string', '可选', '传宽x高,只决定画面比例:1024x1024=1:1,1536x1024≈3:2,1024x1536≈2:3;auto 表示默认比例'],
+  ['quality', 'string', '可选', '独立选择清晰度/超分档:不传或 low=1K,medium=2K,high=4K,auto=模型默认档;模型不支持时自动取可用档'],
 ]
 const editParams = [
   ['image', 'file', '必填', '输入图;多张参考图重复 image[] 字段(multipart 文件上传)'],
   ['prompt', 'string', '必填', '编辑/参考描述'],
   ['model', 'string', '必填', '模型名(别名优先,需支持图生图)'],
-  ['size', 'string', '可选', '同图像:决定比例 + 分辨率档(见下方对照表)'],
-  ['quality', 'string', '可选', '同图像:仅未传 size 时选择分辨率档'],
+  ['size', 'string', '可选', '同图像:只决定画面比例'],
+  ['quality', 'string', '可选', '同图像:独立选择清晰度/超分档位'],
 ]
 const videoParams = [
   ['model', 'string', '必填', '模型名(别名优先),见上表(视频)'],
@@ -64,26 +64,25 @@ const videoParams = [
   ['input_reference', 'file', '可选', '首帧/参考图(multipart 文件;runway 图生视频必填 1 张)'],
 ]
 
-// ---- size → 比例 × 分辨率档 对照表(用 size 该传的值)----
-// size 的长边映射档位:<1800→1K · 1800–3499→2K · ≥3500→4K;宽高比映射比例。
+// ---- size → 比例对照表(用 size 该传的值)----
 const sizeTable = [
-  { ratio: '1:1 · 方',   k1: '1024x1024', k2: '2048x2048', k4: '4096x4096' },
-  { ratio: '5:4 · 横',   k1: '1280x1024', k2: '2560x2048', k4: '3840x3072' },
-  { ratio: '4:3 · 横',   k1: '1024x768',  k2: '2048x1536', k4: '4096x3072' },
-  { ratio: '3:2 · 横',   k1: '1200x800',  k2: '2400x1600', k4: '3600x2400' },
-  { ratio: '16:9 · 横',  k1: '1280x720',  k2: '2048x1152', k4: '4096x2304' },
-  { ratio: '2:1 · 横',   k1: '1440x720',  k2: '2880x1440', k4: '4096x2048' },
-  { ratio: '21:9 · 超宽', k1: '1680x720',  k2: '2520x1080', k4: '5040x2160' },
-  { ratio: '3:1 · 超宽',  k1: '1536x512',  k2: '2304x768',  k4: '3840x1280' },
-  { ratio: '4:1 · 超宽',  k1: '1728x432',  k2: '2880x720',  k4: '4096x1024' },
-  { ratio: '8:1 · 超宽',  k1: '1728x216',  k2: '2880x360',  k4: '4096x512' },
-  { ratio: '4:5 · 竖',   k1: '1024x1280', k2: '2048x2560', k4: '3072x3840' },
-  { ratio: '3:4 · 竖',   k1: '768x1024',  k2: '1536x2048', k4: '3072x4096' },
-  { ratio: '2:3 · 竖',   k1: '800x1200',  k2: '1600x2400', k4: '2400x3600' },
-  { ratio: '9:16 · 竖',  k1: '720x1280',  k2: '1152x2048', k4: '2304x4096' },
-  { ratio: '1:3 · 竖',   k1: '512x1536',  k2: '768x2304',  k4: '1280x3840' },
-  { ratio: '1:4 · 竖',   k1: '432x1728',  k2: '720x2880',  k4: '1024x4096' },
-  { ratio: '1:8 · 竖',   k1: '216x1728',  k2: '360x2880',  k4: '512x4096' },
+  { ratio: '1:1 · 方',    size: '1024x1024' },
+  { ratio: '5:4 · 横',    size: '1280x1024' },
+  { ratio: '4:3 · 横',    size: '1024x768' },
+  { ratio: '3:2 · 横',    size: '1536x1024' },
+  { ratio: '16:9 · 横',   size: '1280x720' },
+  { ratio: '2:1 · 横',    size: '1440x720' },
+  { ratio: '21:9 · 超宽', size: '1680x720' },
+  { ratio: '3:1 · 超宽',  size: '1536x512' },
+  { ratio: '4:1 · 超宽',  size: '1728x432' },
+  { ratio: '8:1 · 超宽',  size: '1728x216' },
+  { ratio: '4:5 · 竖',    size: '1024x1280' },
+  { ratio: '3:4 · 竖',    size: '768x1024' },
+  { ratio: '2:3 · 竖',    size: '1024x1536' },
+  { ratio: '9:16 · 竖',   size: '720x1280' },
+  { ratio: '1:3 · 竖',    size: '512x1536' },
+  { ratio: '1:4 · 竖',    size: '432x1728' },
+  { ratio: '1:8 · 竖',    size: '216x1728' },
 ]
 
 // ---- 视频 size → 比例 × 分辨率(720p / 1080p)----
@@ -109,7 +108,8 @@ const examples = computed(() => [
   -d '{
     "model": "${sampleImage.value}",
     "prompt": "a corgi running in a golden wheat field, cinematic",
-    "size": "2048x2048"
+    "size": "1024x1024",
+    "quality": "medium"
   }'`,
   },
   {
@@ -123,7 +123,8 @@ client = OpenAI(api_key="${keyHint.value}", base_url="${base.value}/v1")
 resp = client.images.generate(
     model="${sampleImage.value}",
     prompt="a corgi running in a golden wheat field, cinematic",
-    size="2048x2048",   # 2K · 1:1,见下方对照表
+    size="1024x1024",   # 1:1 比例
+    quality="medium",   # 2K 超分
 )
 # 结果是图片 URL(上游原始直链,会过期 → 尽快下载/转存)
 urllib.request.urlretrieve(resp.data[0].url, "out.png")`,
@@ -135,7 +136,8 @@ urllib.request.urlretrieve(resp.data[0].url, "out.png")`,
   -H "Authorization: Bearer ${keyHint.value}" \\
   -F model="${sampleImage.value}" \\
   -F prompt="把这张图改成赛博朋克风格" \\
-  -F size="2048x2048" \\
+  -F size="1024x1024" \\
+  -F quality="medium" \\
   -F image=@input.png
 # 多张参考图:重复 -F image=@a.png -F image=@b.png`,
   },
@@ -350,35 +352,30 @@ async function copy(text) {
       </div>
     </section>
 
-    <!-- size 对照表(课时表)—— 解决"传错分辨率" -->
+    <!-- size 对照表(课时表)—— 比例与超分档位分开 -->
     <section>
-      <h2 class="text-lg font-semibold mb-1">图像比例与分辨率对照表 · <code class="text-white/70 text-sm">size</code> 该传什么</h2>
+      <h2 class="text-lg font-semibold mb-1">图像比例对照表 · <code class="text-white/70 text-sm">size</code> 该传什么</h2>
       <p class="text-xs text-white/45 mb-3">
-        <code class="text-white/70">size</code> 传的是<strong class="text-white/70">宽x高</strong>,系统用宽高比推断比例,用长边判断分辨率档。
-        左边选比例,上面选档位,交叉格里就是可直接复制的 <code class="text-white/70">size</code>。
-        同时传 <code class="text-white/70">size</code> 和 <code class="text-white/70">quality</code> 时以 size 为准;模型不支持目标档位时会取最接近的可用档位。
+        <code class="text-white/70">size</code> 传<strong class="text-white/70">宽x高</strong>,只决定画面比例;清晰度/超分由 <code class="text-white/70">quality</code> 独立决定。
+        <code class="text-white/70">size</code> 和 <code class="text-white/70">quality</code> 可以同时传,互不覆盖。
       </p>
       <div class="card overflow-hidden">
         <table class="w-full text-sm">
           <thead><tr class="text-left text-[11px] uppercase tracking-wider text-white/40 border-b border-white/[0.08]">
             <th class="px-4 py-2.5 font-medium">比例</th>
-            <th class="px-4 py-2.5 font-medium">1K</th>
-            <th class="px-4 py-2.5 font-medium">2K</th>
-            <th class="px-4 py-2.5 font-medium">4K</th>
+            <th class="px-4 py-2.5 font-medium">size 示例</th>
           </tr></thead>
           <tbody>
             <tr v-for="row in sizeTable" :key="row.ratio" class="border-b border-white/[0.04] last:border-0">
               <td class="px-4 py-2.5 text-white/75">{{ row.ratio }}</td>
-              <td class="px-4 py-2.5 font-mono text-white/85">{{ row.k1 }}</td>
-              <td class="px-4 py-2.5 font-mono text-white/85">{{ row.k2 }}</td>
-              <td class="px-4 py-2.5 font-mono text-white/85">{{ row.k4 }}</td>
+              <td class="px-4 py-2.5 font-mono text-white/85">{{ row.size }}</td>
             </tr>
           </tbody>
         </table>
       </div>
       <p class="text-xs text-white/40 mt-2">
-        例:想要 <strong class="text-white/70">2K 的 16:9 横图</strong> → <code class="text-white/70">"size": "2048x1152"</code>。
-        不传 size 时比例默认 <strong class="text-white/70">1:1</strong>,可用 <code class="text-white/70">quality</code> 选档:不传=默认请求 2K,low=1K,medium=2K,high=4K,auto=模型最低可用档。
+        例:想要 <strong class="text-white/70">16:9 横图 + 2K 超分</strong> → <code class="text-white/70">"size": "1280x720", "quality": "medium"</code>。
+        不传 size 时比例使用默认值(当前为 1:1);quality 可选 low=1K、medium=2K、high=4K、auto=模型默认档。
       </p>
 
       <!-- 视频分辨率(720p / 1080p,按短边判) -->
@@ -435,7 +432,7 @@ async function copy(text) {
           <li>完成后 <code class="text-white/85 font-mono">GET /v1/videos/{id}/content</code> 返回 <strong class="text-white/90">mp4 原始二进制</strong>(非 base64、非 URL)</li>
         </ol>
         <p><strong class="text-white/90">计费(预扣)</strong>:生成<strong class="text-white/90">前</strong>按上表价格从你的 Key 账号预扣积分;图像或视频上游失败会自动退回 —— 失败不扣费。</p>
-        <p><strong class="text-white/90">参数映射</strong>:<code class="text-white/70">size</code>(宽x高)同时决定<strong class="text-white/90">比例 + 分辨率档</strong>(长边:&lt;1800→1K · 1800–3499→2K · ≥3500→4K),不是直接填写比例;未给 size 时才使用 <code class="text-white/70">quality</code>(low / medium / high / auto)选择模型可用档位,同时传时以 size 为准。<code class="text-white/70">seconds</code>→视频时长。档位须落在模型定价表内,余额不足返回 402。</p>
+        <p><strong class="text-white/90">参数映射</strong>:<code class="text-white/70">size</code>(宽x高)只决定<strong class="text-white/90">比例</strong>,<code class="text-white/70">quality</code>(low / medium / high / auto)独立决定<strong class="text-white/90">清晰度/超分档位</strong>;两者可同时传。<code class="text-white/70">seconds</code>→视频时长。档位须落在模型定价表内,余额不足返回 402。</p>
         <div class="pt-2 grid sm:grid-cols-2 gap-2 text-xs">
           <div class="flex items-center gap-2"><span class="badge-err">401</span> Key 无效 / 上游需重新授权</div>
           <div class="flex items-center gap-2"><span class="badge-err">404</span> 未知 model / 视频任务不存在</div>

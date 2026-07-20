@@ -195,10 +195,9 @@ type V1ImageRequest struct {
 	Prompt string
 	Size   string
 	// Quality is OpenAI's image quality (low|medium|high|auto). For our tiered
-	// models it selects the resolution (low→1K, medium→2K, high→4K, auto→default),
-	// clamped to whatever tiers the model actually prices. Only used when
-	// Resolution is left blank (the strict /v1 OpenAI path); the playground passes
-	// Resolution directly and ignores this.
+	// models it selects the resolution/super-resolution tier (low→1K,
+	// medium→2K, high→4K, auto→model default), clamped to whatever tiers the
+	// model actually prices. Resolution is independent from Size/aspect ratio.
 	Quality         string
 	ResponseFormat  string
 	AspectRatio     string
@@ -1386,22 +1385,17 @@ func (s *V1Service) prepareImage(ctx context.Context, principal *APIPrincipal, i
 	if err := ensureReferenceSizes(in.ReferenceImages); err != nil {
 		return nil, "", "", 0, err
 	}
-	// `size` (WxH) drives BOTH the aspect ratio AND the resolution tier — its long
-	// edge maps to a tier (<1800→1K, 1800–3499→2K, ≥3500→4K). The web path passes
-	// an explicit resolution; the OpenAI /v1 path derives it from size. When size
-	// is absent, quality selects the closest tier that the model actually prices.
-	aspectRatio, resolution := parseImageSize(in.Size, in.AspectRatio, in.Resolution)
-	if strings.TrimSpace(in.Size) == "" && strings.TrimSpace(in.Resolution) == "" && strings.TrimSpace(in.Quality) != "" {
-		resolution = resolutionForQuality(modelItem, in.Quality)
-	}
+	// OpenAI-compatible semantics: size (WxH) selects the aspect ratio, while
+	// quality selects the resolution/super-resolution tier. The web path passes an
+	// explicit resolution; the /v1 path derives it from quality. Both fields may
+	// be supplied together and are intentionally independent.
+	aspectRatio, resolution := resolveImageShape(modelItem, in.Size, in.AspectRatio, in.Resolution, in.Quality)
 	// Snap to the nearest ratio the model actually supports — a `size`-derived
 	// ratio (e.g. 1:3) must never be passed through to an upstream that rejects
 	// it (Runway 400s on ratios outside its list).
 	aspectRatio = snapRatio(aspectRatio, repo.JSONStrings(modelItem.Ratios))
-	// parseImageSize defaults a blank resolution to "2K" (OpenAI-size parity).
-	// For a model that doesn't price that tier — e.g. gpt-image-2 is 1K-only —
-	// fall back to its first supported tier so a missing/stale resolution from
-	// the client doesn't get rejected as "unsupported or unpriced".
+	// Clamp the requested quality tier to the model's priced tiers. For example,
+	// a 1K-only model receives 1K even when quality=medium/high was requested.
 	if _, ok := modelPrice(modelItem, "image", resolution, "", false); !ok {
 		if fb := firstPricedResolution(modelItem); fb != "" {
 			resolution = fb
@@ -3208,27 +3202,18 @@ func parseImageSize(size, aspectRatio, resolution string) (string, string) {
 			if ar == "" {
 				ar = guessRatio(w, h)
 			}
-			if rs == "" {
-				maxEdge := w
-				if h > maxEdge {
-					maxEdge = h
-				}
-				switch {
-				case maxEdge >= 3500:
-					rs = "4K"
-				case maxEdge >= 1800:
-					rs = "2K"
-				default:
-					rs = "1K"
-				}
-			}
 		}
 	}
 	if ar == "" {
 		ar = "1:1"
 	}
-	if rs == "" {
-		rs = "2K"
+	return ar, rs
+}
+
+func resolveImageShape(item *model.ModelConfig, size, aspectRatio, resolution, quality string) (string, string) {
+	ar, rs := parseImageSize(size, aspectRatio, resolution)
+	if strings.TrimSpace(resolution) == "" {
+		rs = resolutionForQuality(item, quality)
 	}
 	return ar, rs
 }

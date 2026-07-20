@@ -44,8 +44,9 @@ func (h *V1Handler) Models(c *gin.Context) {
 }
 
 // ImageGenerations — OpenAI POST /v1/images/generations (text-to-image only).
-// Accepts exactly OpenAI's fields; size→aspect ratio and quality→resolution tier
-// are mapped server-side. Returns {created, data:[{b64_json}]}.
+// Accepts exactly OpenAI's fields; size→aspect ratio and quality→resolution /
+// super-resolution tier are mapped independently server-side. Returns
+// {created, data:[{b64_json}]}.
 func (h *V1Handler) ImageGenerations(c *gin.Context) {
 	principal, err := h.v1.Authenticate(c.Request.Context(), c.GetHeader("Authorization"))
 	if err != nil {
