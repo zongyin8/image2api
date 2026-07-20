@@ -46,7 +46,7 @@ function priceOf(m) {
 const imageParams = [
   ['model', 'string', '必填', '模型名(别名优先),见上表(图像)'],
   ['prompt', 'string', '必填', '文字描述'],
-  ['size', 'string', '可选', '传宽x高,只决定画面比例:1024x1024=1:1,1536x1024≈3:2,1024x1536≈2:3;auto 表示默认比例'],
+  ['size', 'string', '可选', '传宽x高,只决定比例。常用:1024x1024=1:1,768x1024=3:4,720x1280=9:16,1024x768=4:3,1280x720=16:9;auto=默认比例'],
   ['quality', 'string', '可选', '独立选择清晰度/超分档:不传或 low=1K,medium=2K,high=4K,auto=模型默认档;模型不支持时自动取可用档'],
 ]
 const editParams = [
@@ -357,7 +357,7 @@ async function copy(text) {
       <h2 class="text-lg font-semibold mb-1">图像比例对照表 · <code class="text-white/70 text-sm">size</code> 该传什么</h2>
       <p class="text-xs text-white/45 mb-3">
         <code class="text-white/70">size</code> 传<strong class="text-white/70">宽x高</strong>,只决定画面比例;清晰度/超分由 <code class="text-white/70">quality</code> 独立决定。
-        <code class="text-white/70">size</code> 和 <code class="text-white/70">quality</code> 可以同时传,互不覆盖。
+        用户前端常用比例为 1:1、3:4、9:16、4:3、16:9;<code class="text-white/70">size</code> 和 <code class="text-white/70">quality</code> 可以同时传,互不覆盖。具体可用比例以所选模型为准。
       </p>
       <div class="card overflow-hidden">
         <table class="w-full text-sm">

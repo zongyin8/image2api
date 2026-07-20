@@ -494,7 +494,7 @@
           <div class="api-example" style="margin-top:8px">
             <div class="api-example-head" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><strong>① 文生图 · gpt-image-2</strong><button id="copyImgExample" type="button" class="secondary-btn" style="padding:3px 12px;font-size:12px">复制</button></div>
             <pre id="imgExamplePre" style="white-space:pre;overflow:auto"></pre>
-            <p class="muted-text" style="margin-top:8px;line-height:1.8"><b>把 <code>$API_KEY</code> 换成你的密钥</b>（用上方「一键复制密钥」获取，示例里不显示你的真实密钥）。<br><b>size 比例</b>：传 <code>宽x高</code>，只决定画面比例；例如 <code>1024x1024</code> = 1:1，<code>1536x1024</code> ≈ 3:2，<code>1024x1536</code> ≈ 2:3，<code>auto</code> = 默认比例。<br><b>quality 清晰度/超分</b>：独立于 size；不传或 <code>low</code> = 1K · <code>medium</code> = 2K · <code>high</code> = 4K · <code>auto</code> = 模型默认档。两者可以同时传，模型不支持目标档位时自动使用可用档位。</p>
+            <p class="muted-text" style="margin-top:8px;line-height:1.8"><b>把 <code>$API_KEY</code> 换成你的密钥</b>（用上方「一键复制密钥」获取，示例里不显示你的真实密钥）。<br><b>size 比例</b>：传 <code>宽x高</code>，只决定画面比例。前端常用 5 种：<code>1024x1024</code> = 方形 1:1 · <code>768x1024</code> = 竖版 3:4 · <code>720x1280</code> = 故事版 9:16 · <code>1024x768</code> = 横版 4:3 · <code>1280x720</code> = 宽屏 16:9；<code>auto</code> = 自动/默认比例。具体可用比例以所选模型为准。<br><b>quality 清晰度/超分</b>：独立于 size；不传或 <code>low</code> = 1K · <code>medium</code> = 2K · <code>high</code> = 4K · <code>auto</code> = 模型默认档。两者可以同时传，模型不支持目标档位时自动使用可用档位。</p>
           </div>
         </div>
       </div>`;
