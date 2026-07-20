@@ -482,6 +482,12 @@ func (r *EventRepository) Create(ctx context.Context, item *model.EventLog) erro
 	if err := r.db.WithContext(ctx).Create(item).Error; err != nil {
 		return err
 	}
+	// Preflight rejections are audit records, not generation attempts. Keeping
+	// them out of lifetime counters prevents a noisy client with no credits from
+	// inflating total/API/image counts even though no provider work started.
+	if item.Status == "rejected" {
+		return nil
+	}
 	// Persistent cumulative counters (survive log retention/clearing): every
 	// created event bumps total + its kind + (api source).
 	deltas := map[string]int64{"total": 1}
