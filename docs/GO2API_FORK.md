@@ -93,6 +93,8 @@ rsync -a --delete classic-web/ /opt/image2api-g2a/web-user/
 cd frontend && npm ci && npm run build -- --base=/new/
 rsync -a --delete dist/ /opt/image2api-g2a/new/
 
+> 注意：`frontend/Dockerfile` 的镜像用于根路径 `/`（默认 base 为 `/`），不能把镜像内的 `/usr/share/nginx/html` 直接复制到 `/new/`。`/new/` 必须单独使用 `--base=/new/` 构建，否则浏览器会请求根路径 `/assets/` 并显示空白页。
+
 # 控制台 shim。
 cp ops/console_shim.py /opt/image2api-g2a/console_shim.py
 cp ops/console-shim.service /etc/systemd/system/console-shim.service
