@@ -95,6 +95,10 @@ type V1Service struct {
 	// of fails/last_used. The atomic counter also serializes concurrent picks so
 	// two simultaneous requests never start on the same account.
 	tokenCursors sync.Map
+	// rejectedLogTimes coalesces identical preflight rejections from a noisy
+	// client. The request is still rejected every time; only duplicate audit rows
+	// are suppressed for a short window.
+	rejectedLogTimes sync.Map
 
 	// inflight maps an in-progress event ID → the cancel func of its generation
 	// work context, so the maintenance sweep can stop a stuck generation the
@@ -293,15 +297,17 @@ func (s *V1Service) checkBannedPrompt(ctx context.Context, principal *APIPrincip
 	return nil
 }
 
-// logRejectedEvent records a request rejected BEFORE the pending event exists
-// (banned word, concurrency full, unknown model, insufficient credits…) as a
-// failed event, so every attempt shows up in the logs.
+// logRejectedEvent records a request rejected BEFORE provider work starts.
+// Rejections remain visible for auditing, but do not count as provider failures.
 func (s *V1Service) logRejectedEvent(ctx context.Context, kind, modelID string, principal *APIPrincipal, prompt, source, reason string) {
+	if !s.shouldLogRejected(principal, source, reason) {
+		return
+	}
 	event := &model.EventLog{
 		ID:        "evt-" + randomUpper(12),
 		TS:        time.Now(),
 		Kind:      kind,
-		Status:    "failed",
+		Status:    "rejected",
 		Model:     strings.TrimSpace(modelID),
 		Prompt:    prompt,
 		Source:    source,
@@ -317,6 +323,30 @@ func (s *V1Service) logRejectedEvent(ctx context.Context, kind, modelID string, 
 		event.UserID = principal.User.ID
 	}
 	_ = s.events.Create(ctx, event)
+}
+
+const rejectedLogWindow = 5 * time.Minute
+
+func (s *V1Service) shouldLogRejected(principal *APIPrincipal, source, reason string) bool {
+	userID := "anonymous"
+	if principal != nil && principal.User != nil && principal.User.ID != "" {
+		userID = principal.User.ID
+	}
+	key := userID + "\x00" + strings.TrimSpace(source) + "\x00" + strings.TrimSpace(reason)
+	now := time.Now().UnixNano()
+	for {
+		previous, loaded := s.rejectedLogTimes.LoadOrStore(key, now)
+		if !loaded {
+			return true
+		}
+		last, ok := previous.(int64)
+		if ok && time.Duration(now-last) < rejectedLogWindow {
+			return false
+		}
+		if s.rejectedLogTimes.CompareAndSwap(key, previous, now) {
+			return true
+		}
+	}
 }
 
 // refreshAdobeToken re-mints an Adobe account's access token from its cookie

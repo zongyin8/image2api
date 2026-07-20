@@ -8,10 +8,10 @@ import Icon from '../components/Icon.vue'
 import MediaLightbox from '../components/MediaLightbox.vue'
 
 const items = ref([])
-const stats = ref({ total: 0, success: 0, failed: 0, pending: 0 })
+const stats = ref({ total: 0, success: 0, failed: 0, pending: 0, rejected: 0 })
 const loading = ref(false)
 const kindFilter = ref('')     // '' | 'image' | 'video'
-const statusFilter = ref('')   // '' | 'success' | 'failed' | 'pending'
+const statusFilter = ref('')   // '' | 'success' | 'failed' | 'pending' | 'rejected'
 const sourceFilter = ref('')   // '' | 'v1' | 'user' | 'admin'
 const search = ref('')
 const userSearch = ref('')   // 服务端用户搜索：名称 / 邮箱 / ID，跨页生效
@@ -48,7 +48,7 @@ async function load() {
   const r = await api('/logs?' + qs.toString())
   items.value = r.data?.data || []
   total.value = Number(r.data?.total ?? items.value.length)
-  stats.value = r.data?.stats || { total: 0, success: 0, failed: 0, pending: 0 }
+  stats.value = r.data?.stats || { total: 0, success: 0, failed: 0, pending: 0, rejected: 0 }
   loading.value = false
 }
 
@@ -130,16 +130,18 @@ onUnmounted(() => {
 })
 
 // ---- chip helpers ----
-const statusLabel = (s) => ({ success: '成功', failed: '失败', pending: '进行中' }[s] || s)
+const statusLabel = (s) => ({ success: '成功', failed: '失败', pending: '进行中', rejected: '已拦截' }[s] || s)
 const statusPill = (s) => ({
   success: 'bg-emerald-500/10 text-emerald-300 ring-emerald-400/30',
   failed:  'bg-rose-500/10 text-rose-300 ring-rose-400/30',
   pending: 'bg-amber-500/10 text-amber-300 ring-amber-400/30',
+  rejected: 'bg-sky-500/10 text-sky-300 ring-sky-400/30',
 }[s] || 'bg-white/[0.06] text-white/65 ring-white/15')
 const statusDot = (s) => ({
   success: 'bg-emerald-400',
   failed:  'bg-rose-400',
   pending: 'bg-amber-400',
+  rejected: 'bg-sky-400',
 }[s] || 'bg-white/40')
 
 // Source: backend stamps "v1" (API key), "user" (画图台), "admin" (后台测试模型).
@@ -154,7 +156,7 @@ const sourcePill = (s) => ({
 <template>
   <section class="space-y-4">
     <!-- KPI strip — dense pills aligned with the dashboard tints -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
       <div class="card p-4">
         <div class="text-[11px] uppercase tracking-wider text-white/45">总计</div>
         <div class="text-2xl font-semibold mt-1 tabular-nums">{{ stats.total }}</div>
@@ -170,6 +172,10 @@ const sourcePill = (s) => ({
       <div class="card p-4">
         <div class="text-[11px] uppercase tracking-wider text-amber-300/80">进行中</div>
         <div class="text-2xl font-semibold mt-1 tabular-nums text-amber-300">{{ stats.pending }}</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-[11px] uppercase tracking-wider text-sky-300/80">已拦截</div>
+        <div class="text-2xl font-semibold mt-1 tabular-nums text-sky-300">{{ stats.rejected }}</div>
       </div>
     </div>
 
@@ -191,6 +197,9 @@ const sourcePill = (s) => ({
         </button>
         <button @click="setStatus('pending')" class="fp" :class="statusFilter === 'pending' && 'fp-amber'">
           <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>进行中
+        </button>
+        <button @click="setStatus('rejected')" class="fp" :class="statusFilter === 'rejected' && 'fp-on'">
+          <span class="w-1.5 h-1.5 rounded-full bg-sky-400"></span>已拦截
         </button>
       </div>
       <div class="w-px h-5 bg-white/10"></div>

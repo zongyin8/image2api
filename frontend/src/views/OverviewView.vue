@@ -34,14 +34,17 @@ async function refreshAll() {
 }
 
 // ---- windowed event aggregates (from /dashboard) ----
-const EMPTY_WINDOW = { total: 0, success: 0, failed: 0, pending: 0, image: 0, video: 0, api: 0, web: 0, spent: 0 }
+const EMPTY_WINDOW = { total: 0, success: 0, failed: 0, pending: 0, rejected: 0, image: 0, video: 0, api: 0, web: 0, spent: 0 }
 const today = computed(() => dash.value?.today || EMPTY_WINDOW)
 const todayDau = computed(() => dash.value?.today_dau || 0)
 const day = computed(() => dash.value?.day || EMPTY_WINDOW)
 const week = computed(() => dash.value?.week || EMPTY_WINDOW)
 // All-time persistent counters (stat_counters) — independent of log retention.
 const lifetime = computed(() => dash.value?.lifetime || {})
-const successRate = computed(() => (day.value.total ? Math.round((day.value.success / day.value.total) * 100) : 0))
+const successRate = computed(() => {
+  const completed = day.value.success + day.value.failed
+  return completed ? Math.round((day.value.success / completed) * 100) : 0
+})
 
 // Direction vs the previous 24h (24–48h ago) — a quiet day after a busy week is
 // worth seeing. prev_day_total is computed server-side.
@@ -187,6 +190,7 @@ onUnmounted(() => clearInterval(timer))
           <span class="text-emerald-300 tabular-nums">{{ today.success }} 成功</span>
           <span v-if="today.failed" class="text-rose-300 tabular-nums">{{ today.failed }} 失败</span>
           <span v-if="today.pending" class="text-amber-300 tabular-nums">{{ today.pending }} 进行中</span>
+          <span v-if="today.rejected" class="text-sky-300 tabular-nums">{{ today.rejected }} 已拦截</span>
         </div>
         <div class="text-[11px] text-amber-300 mt-1 tabular-nums">
           消耗 {{ fmtCredits(today.spent) }} 积分 · {{ fmtInt(todayDau) }} 活跃
@@ -213,6 +217,7 @@ onUnmounted(() => clearInterval(timer))
           <span class="text-emerald-300 tabular-nums">{{ day.success }} 成功</span>
           <span v-if="day.failed" class="text-rose-300 tabular-nums">{{ day.failed }} 失败</span>
           <span v-if="day.pending" class="text-amber-300 tabular-nums">{{ day.pending }} 进行中</span>
+          <span v-if="day.rejected" class="text-sky-300 tabular-nums">{{ day.rejected }} 已拦截</span>
         </div>
         <div v-if="day.total" class="text-[10px] text-white/40 mt-1 tabular-nums">
           Web {{ day.web }} · API {{ day.api }} · 图 {{ day.image }} · 视 {{ day.video }}

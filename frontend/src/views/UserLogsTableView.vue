@@ -1,6 +1,6 @@
 <script setup>
 // Front-end "日志" page — a row-per-event log of the signed-in user's OWN
-// generations (success / failed / pending), surfacing failure reasons that the
+// generations (success / failed / pending / rejected), surfacing failure reasons that the
 // image-only 记录 gallery hides. Uses the same /logs endpoint (auto-scoped to
 // the caller), just without the success-only filter.
 import { ref, reactive, computed, onMounted } from 'vue'
@@ -15,9 +15,9 @@ import MediaLightbox from '../components/MediaLightbox.vue'
 const router = useRouter()
 const items = ref([])          // current server page
 const total = ref(0)           // server-side total (matches current filters)
-const stats = ref({ total: 0, success: 0, failed: 0, pending: 0 })  // 本人统计
+const stats = ref({ total: 0, success: 0, failed: 0, pending: 0, rejected: 0 })  // 本人统计
 const loading = ref(false)
-const statusFilter = ref('')   // '' | success | failed | pending
+const statusFilter = ref('')   // '' | success | failed | pending | rejected
 const sourceFilter = ref('')   // '' | api | web   (api = key 调用, web = 画图台)
 const search = ref('')
 const page = ref(1)
@@ -106,14 +106,15 @@ function goPage(n) {
   load()
 }
 
-const statusLabel = (s) => ({ success: '成功', failed: '失败', pending: '进行中' }[s] || s)
+const statusLabel = (s) => ({ success: '成功', failed: '失败', pending: '进行中', rejected: '已拦截' }[s] || s)
 const statusPill = (s) => ({
   success: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
   failed: 'bg-rose-50 text-rose-700 ring-rose-200',
   pending: 'bg-amber-50 text-amber-700 ring-amber-200',
+  rejected: 'bg-sky-50 text-sky-700 ring-sky-200',
 }[s] || 'bg-slate-100 text-slate-500 ring-slate-200')
 const statusDot = (s) => ({
-  success: 'bg-emerald-500', failed: 'bg-rose-500', pending: 'bg-amber-500',
+  success: 'bg-emerald-500', failed: 'bg-rose-500', pending: 'bg-amber-500', rejected: 'bg-sky-500',
 }[s] || 'bg-slate-400')
 // Match the admin 日志 params exactly: 比例 · 画质 · [时长] · [参考 N].
 const params = (e) => {
@@ -138,7 +139,7 @@ const params = (e) => {
     </div>
 
     <!-- KPI 统计(本人累计) -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
       <div class="card p-4">
         <div class="text-[11px] uppercase tracking-wider text-slate-400">总计</div>
         <div class="text-2xl font-semibold mt-1 tabular-nums text-slate-900">{{ stats.total }}</div>
@@ -155,12 +156,16 @@ const params = (e) => {
         <div class="text-[11px] uppercase tracking-wider text-amber-600/80">进行中</div>
         <div class="text-2xl font-semibold mt-1 tabular-nums text-amber-600">{{ stats.pending }}</div>
       </div>
+      <div class="card p-4">
+        <div class="text-[11px] uppercase tracking-wider text-sky-600/80">已拦截</div>
+        <div class="text-2xl font-semibold mt-1 tabular-nums text-sky-600">{{ stats.rejected }}</div>
+      </div>
     </div>
 
     <!-- Filter bar -->
     <div class="card p-3 flex items-center gap-3 flex-wrap">
       <div class="flex items-center gap-1.5">
-        <button v-for="s in [['','全部'],['success','成功'],['failed','失败'],['pending','进行中']]" :key="s[0]"
+        <button v-for="s in [['','全部'],['success','成功'],['failed','失败'],['pending','进行中'],['rejected','已拦截']]" :key="s[0]"
                 @click="setStatus(s[0])"
                 class="text-xs rounded-lg px-2.5 py-1.5 transition-colors"
                 :class="statusFilter === s[0] ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'">{{ s[1] }}</button>

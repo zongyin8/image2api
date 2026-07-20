@@ -606,8 +606,8 @@
     const rows = pageItems.map((x, i) => {
       const idx = i;                            // 用于 data-copy-prompt 回查当前页 prompt
       const cost = Number(x.cost || 0);
-      const statusLabel = x.status === "success" ? "成功" : (x.status === "failed" ? "失败" : (x.status === "pending" ? "生成中" : (x.status || "")));
-      const statusColor = x.status === "success" ? "#1f9d55" : (x.status === "failed" ? "#c0392b" : "#b26a00");
+      const statusLabel = x.status === "success" ? "成功" : (x.status === "failed" ? "失败" : (x.status === "rejected" ? "已拦截" : (x.status === "pending" ? "生成中" : (x.status || ""))));
+      const statusColor = x.status === "success" ? "#1f9d55" : (x.status === "failed" ? "#c0392b" : (x.status === "rejected" ? "#0284c7" : "#b26a00"));
       const kindLabel = x.kind === "video" ? "视频" : "图片";
       const spec = [x.resolution, x.ratio].filter(Boolean).join(" · ");
       const file = x.file ? String(x.file).replace(/\\/g, "/") : "";
@@ -623,10 +623,10 @@
         ? `<img src="${escapeHtml(thumb)}" data-log-full="${escapeHtml(full)}" loading="lazy" alt="" onerror="this.onerror=null;this.src='${escapeHtml(full)}'" style="width:56px;height:56px;object-fit:cover;border-radius:8px;flex:0 0 auto;cursor:zoom-in;background:#8882"/>`
         : `<div style="width:56px;height:56px;border-radius:8px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;background:#8882;color:#8a94a2;font-size:11px">${x.status === "pending" ? "生成中" : (x.status === "failed" ? "失败" : kindLabel)}</div>`;
       // 失败行显示错误；否则显示 prompt（点击复制）。
-      const body = (x.status === "failed" && errText)
+      const body = ((x.status === "failed" || x.status === "rejected") && errText)
         ? `<p style="margin:2px 0;color:#c0392b;font-size:12px;line-height:1.5;word-break:break-word">${escapeHtml(errText.slice(0, 160))}</p>`
         : (promptText ? `<p data-copy-prompt="${idx}" title="点击复制提示词" style="margin:2px 0;font-size:12px;line-height:1.5;word-break:break-word;cursor:pointer;color:#334155">${escapeHtml(promptText.slice(0, 160))}</p>` : "");
-      return `<div class="history-item log-item" style="display:flex;gap:10px;align-items:flex-start">${media}<div style="flex:1;min-width:0"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><strong style="font-size:13px">${escapeHtml(x.model || "生成")} · ${kindLabel}${spec ? " · " + escapeHtml(spec) : ""}</strong><span style="font-size:12px;color:${statusColor};flex:0 0 auto">${escapeHtml(statusLabel)}</span></div>${body}<div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#8a94a2;margin-top:2px"><span>${escapeHtml(timeStr)}</span><span>${x.status === "failed" ? "已退款" : (cost > 0 ? "扣费 " + escapeHtml(cost) + " 积分" : "")}</span></div></div></div>`;
+      return `<div class="history-item log-item" style="display:flex;gap:10px;align-items:flex-start">${media}<div style="flex:1;min-width:0"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><strong style="font-size:13px">${escapeHtml(x.model || "生成")} · ${kindLabel}${spec ? " · " + escapeHtml(spec) : ""}</strong><span style="font-size:12px;color:${statusColor};flex:0 0 auto">${escapeHtml(statusLabel)}</span></div>${body}<div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#8a94a2;margin-top:2px"><span>${escapeHtml(timeStr)}</span><span>${x.status === "failed" ? "已退款" : (x.status === "rejected" ? "未扣费" : (cost > 0 ? "扣费 " + escapeHtml(cost) + " 积分" : ""))}</span></div></div></div>`;
     }).join("");
     const pager = `<div class="history-pager"><span>每页 ${pageSize} 条，共 ${state.creditHistoryTotal} 条，第 ${state.creditHistoryPage}/${totalPages} 页</span><div><button type="button" data-history-page="prev" ${state.creditHistoryPage <= 1 ? "disabled" : ""}>上一页</button><button type="button" data-history-page="next" ${state.creditHistoryPage >= totalPages ? "disabled" : ""}>下一页</button></div></div>`;
     els.historyList.innerHTML = rows + pager;

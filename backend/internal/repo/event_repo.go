@@ -36,6 +36,7 @@ type EventStats struct {
 	Success        int64 `json:"success"`
 	Failed         int64 `json:"failed"`
 	Pending        int64 `json:"pending"`
+	Rejected       int64 `json:"rejected"`
 	AvgElapsedMS   *int  `json:"avg_elapsed_ms"`
 	AvgElapsedMS24 *int  `json:"avg_elapsed_ms_24h"`
 }
@@ -113,6 +114,9 @@ func (r *EventRepository) Stats(ctx context.Context) (*EventStats, error) {
 	if err := r.db.WithContext(ctx).Model(&model.EventLog{}).Where("status = ?", "pending").Count(&stats.Pending).Error; err != nil {
 		return nil, err
 	}
+	if err := r.db.WithContext(ctx).Model(&model.EventLog{}).Where("status = ?", "rejected").Count(&stats.Rejected).Error; err != nil {
+		return nil, err
+	}
 
 	type avgRow struct {
 		Avg *float64 `gorm:"column:avg"`
@@ -158,7 +162,8 @@ func (r *EventRepository) StatsByUser(ctx context.Context, userID string) (*Even
 			COUNT(*) AS total,
 			COUNT(*) FILTER (WHERE status = 'success') AS success,
 			COUNT(*) FILTER (WHERE status = 'failed') AS failed,
-			COUNT(*) FILTER (WHERE status = 'pending') AS pending
+			COUNT(*) FILTER (WHERE status = 'pending') AS pending,
+			COUNT(*) FILTER (WHERE status = 'rejected') AS rejected
 		`).
 		Where("user_id = ?", userID).
 		Scan(stats).Error
@@ -176,15 +181,16 @@ func (r *EventRepository) StatsByUser(ctx context.Context, userID string) (*Even
 
 // DashboardWindow is a single time-window aggregate (e.g. last 24h / 7d).
 type DashboardWindow struct {
-	Total   int64   `json:"total"`
-	Success int64   `json:"success"`
-	Failed  int64   `json:"failed"`
-	Pending int64   `json:"pending"`
-	Image   int64   `json:"image"`
-	Video   int64   `json:"video"`
-	API     int64   `json:"api"` // source = 'v1' (OpenAI-compatible key)
-	Web     int64   `json:"web"` // everything else (web / playground)
-	Spent   float64 `json:"spent"`
+	Total    int64   `json:"total"`
+	Success  int64   `json:"success"`
+	Failed   int64   `json:"failed"`
+	Pending  int64   `json:"pending"`
+	Rejected int64   `json:"rejected"`
+	Image    int64   `json:"image"`
+	Video    int64   `json:"video"`
+	API      int64   `json:"api"` // source = 'v1' (OpenAI-compatible key)
+	Web      int64   `json:"web"` // everything else (web / playground)
+	Spent    float64 `json:"spent"`
 }
 
 type ModelUsage struct {
@@ -213,14 +219,15 @@ type HourBucket struct {
 // WindowStats rolls up counts + spend over a single window in one query.
 func (r *EventRepository) WindowStats(ctx context.Context, since time.Time) (*DashboardWindow, error) {
 	type row struct {
-		Total   int64   `gorm:"column:total"`
-		Success int64   `gorm:"column:success"`
-		Failed  int64   `gorm:"column:failed"`
-		Pending int64   `gorm:"column:pending"`
-		Image   int64   `gorm:"column:image"`
-		Video   int64   `gorm:"column:video"`
-		API     int64   `gorm:"column:api"`
-		Spent   float64 `gorm:"column:spent"`
+		Total    int64   `gorm:"column:total"`
+		Success  int64   `gorm:"column:success"`
+		Failed   int64   `gorm:"column:failed"`
+		Pending  int64   `gorm:"column:pending"`
+		Rejected int64   `gorm:"column:rejected"`
+		Image    int64   `gorm:"column:image"`
+		Video    int64   `gorm:"column:video"`
+		API      int64   `gorm:"column:api"`
+		Spent    float64 `gorm:"column:spent"`
 	}
 	var out row
 	if err := r.db.WithContext(ctx).
@@ -230,6 +237,7 @@ func (r *EventRepository) WindowStats(ctx context.Context, since time.Time) (*Da
 			COUNT(*) FILTER (WHERE status = 'success') AS success,
 			COUNT(*) FILTER (WHERE status = 'failed') AS failed,
 			COUNT(*) FILTER (WHERE status = 'pending') AS pending,
+			COUNT(*) FILTER (WHERE status = 'rejected') AS rejected,
 			COUNT(*) FILTER (WHERE kind = 'image') AS image,
 			COUNT(*) FILTER (WHERE kind = 'video') AS video,
 			COUNT(*) FILTER (WHERE source = 'v1') AS api,
@@ -239,7 +247,7 @@ func (r *EventRepository) WindowStats(ctx context.Context, since time.Time) (*Da
 		return nil, err
 	}
 	return &DashboardWindow{
-		Total: out.Total, Success: out.Success, Failed: out.Failed, Pending: out.Pending,
+		Total: out.Total, Success: out.Success, Failed: out.Failed, Pending: out.Pending, Rejected: out.Rejected,
 		Image: out.Image, Video: out.Video, API: out.API, Web: out.Total - out.API,
 		Spent: out.Spent,
 	}, nil
