@@ -31,6 +31,12 @@
 
 Nginx 参考配置是 `ops/nginx-tu.go2api.cc.conf`。其中 Provisioner key 是占位符，部署时必须替换，并与 `provisioner.env` 一致。
 
+外层 Nginx 必须覆盖 `X-Real-IP` 并追加 `X-Forwarded-For`。内层 web
+容器的 `frontend/default.conf.template` 只信任本机和 Docker 私网代理，
+再把还原后的公网 IP 传给后端。不要改回无条件使用容器的
+`$remote_addr`，否则所有用户都会被统计为 Docker 网关 IP，注册限流会
+错误地共用同一个 24 小时计数桶。
+
 ## 二开功能
 
 - 保留上游 image2api 的后台、模型、账号、用户、积分、订单、作品、日志和生成能力。
@@ -133,6 +139,14 @@ curl -fsS http://127.0.0.1:18002/healthz
 curl -fsS http://127.0.0.1:18099/healthz
 nginx -t
 ```
+
+注册限流异常时检查 Redis 键：
+
+```bash
+docker exec image2api-redis-1 redis-cli --scan --pattern 'rl:auth:register:success:*'
+```
+
+键尾应为用户公网 IP，不应是 `172.16.0.0/12` 内的 Docker 网关地址。
 
 还需要人工验证：
 
