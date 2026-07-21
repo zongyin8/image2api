@@ -833,11 +833,16 @@ onUnmounted(() => {
             <Icon :name="dragOver ? 'download' : 'plus'" class="w-5 h-5" />
           </button>
           <button v-if="refImages.length < maxRefs" type="button" @click="pasteFromClipboard"
-                  class="w-20 h-20 rounded-lg border-2 border-dashed border-slate-200 text-slate-400 hover:bg-slate-50 hover:border-slate-300 grid place-items-center"
+                  class="w-20 h-20 rounded-lg border-2 border-dashed border-slate-200 text-slate-400 hover:bg-slate-50 hover:border-slate-300 flex flex-col items-center justify-center gap-1"
                   title="从剪贴板粘贴图片" aria-label="从剪贴板粘贴图片">
             <Icon name="clipboard" class="w-5 h-5" />
+            <span class="text-[11px]">粘贴</span>
           </button>
         </div>
+        <p class="mt-2 text-[11px] text-indigo-500 flex items-center gap-1.5">
+          <Icon name="clipboard" class="w-3.5 h-3.5 shrink-0" />
+          也可直接按 Ctrl+V 粘贴图片
+        </p>
         <input ref="fileInput" type="file" accept="image/*" multiple class="hidden" @change="onFiles" />
       </div>
 
