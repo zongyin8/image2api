@@ -224,6 +224,7 @@ function addFiles(files) {
   error.value = tooBig.length
     ? `图片超过 20MB 已跳过：${tooBig.join('、')}（请压缩后再传）`
     : ''
+  return added
 }
 // Downscale an image blob/file to a small display-only thumbnail so the DOM
 // never holds a multi-MB original just to render an 80px preview. The original
@@ -277,6 +278,54 @@ function onDragLeave(ev) {
   dragOver.value = false
 }
 function removeRef(i) { refImages.value.splice(i, 1) }
+
+function clipboardImageFiles(blobs) {
+  return blobs
+    .filter((blob) => blob && blob.type && blob.type.startsWith('image/'))
+    .map((blob, index) => {
+      const subtype = (blob.type.split('/')[1] || 'png').split('+')[0]
+      return new File([blob], `clipboard-${Date.now()}-${index}.${subtype}`, { type: blob.type })
+    })
+}
+
+function addClipboardImages(blobs) {
+  if (maxRefs.value <= 0) return 0
+  const added = addFiles(clipboardImageFiles(blobs))
+  if (added > 0) flash(`已从剪贴板粘贴 ${added} 张参考图`)
+  else if (refImages.value.length >= maxRefs.value) flash(`参考图已达上限（${maxRefs.value} 张）`)
+  return added
+}
+
+function onPaste(ev) {
+  if (maxRefs.value <= 0) return
+  const files = Array.from(ev.clipboardData?.items || [])
+    .filter((item) => item.kind === 'file' && item.type?.startsWith('image/'))
+    .map((item) => item.getAsFile())
+    .filter(Boolean)
+  if (!files.length) return
+  ev.preventDefault()
+  addClipboardImages(files)
+}
+
+async function pasteFromClipboard() {
+  if (maxRefs.value <= 0) { flash('当前模型不支持参考图'); return }
+  if (!navigator.clipboard?.read) {
+    flash('当前浏览器请直接按 Ctrl+V 粘贴图片')
+    return
+  }
+  try {
+    const items = await navigator.clipboard.read()
+    const blobs = []
+    for (const item of items) {
+      const type = (item.types || []).find((value) => value.startsWith('image/'))
+      if (type) blobs.push(await item.getType(type))
+    }
+    if (!blobs.length) { flash('剪贴板里没有图片'); return }
+    addClipboardImages(blobs)
+  } catch {
+    flash('读取剪贴板失败，请允许权限或按 Ctrl+V')
+  }
+}
 
 // Re-hydrate reference thumbnails from server URLs (after a reload). Fetches
 // each /images URL (same-origin, cookie-authed) and converts to a data URL so
@@ -651,6 +700,7 @@ onMounted(async () => {
     applyModelDefaults()
   }
   window.addEventListener('keydown', onKey)
+  document.addEventListener('paste', onPaste)
   // Fill the grid with the user's recent results, then refresh every 3s so
   // finished tasks (incl. gateway-timed-out ones) land without a reload.
   loadHistory()
@@ -658,6 +708,7 @@ onMounted(async () => {
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKey)
+  document.removeEventListener('paste', onPaste)
   clearInterval(pollTimer)
 })
 </script>
@@ -780,6 +831,11 @@ onUnmounted(() => {
                   class="w-20 h-20 rounded-lg border-2 border-dashed border-slate-200 text-slate-400 hover:bg-slate-50 hover:border-slate-300 grid place-items-center disabled:opacity-40 disabled:cursor-not-allowed"
                   :title="dragOver ? '松开以添加' : '点击或拖拽图片到此'">
             <Icon :name="dragOver ? 'download' : 'plus'" class="w-5 h-5" />
+          </button>
+          <button v-if="refImages.length < maxRefs" type="button" @click="pasteFromClipboard"
+                  class="w-20 h-20 rounded-lg border-2 border-dashed border-slate-200 text-slate-400 hover:bg-slate-50 hover:border-slate-300 grid place-items-center"
+                  title="从剪贴板粘贴图片" aria-label="从剪贴板粘贴图片">
+            <Icon name="clipboard" class="w-5 h-5" />
           </button>
         </div>
         <input ref="fileInput" type="file" accept="image/*" multiple class="hidden" @change="onFiles" />
