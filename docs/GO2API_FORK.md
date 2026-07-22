@@ -43,6 +43,12 @@ Nginx 参考配置是 `ops/nginx-tu.go2api.cc.conf`。其中 Provisioner key 是
 - ChatGPT 多流任务识别和无 async marker 轮询确认，避免误报 `image generation did not start`。
 - Go2Api 用户、积分、CDK 和历史数据迁移脚本位于 `migrate/`。
 - 双前端：经典界面和 `/new/` Vue 界面。
+- 两套用户生成界面都会保存未提交的草稿：提示词/选项写入
+  `localStorage`，参考图原文件写入 IndexedDB 的 `ai-user-drafts`
+  数据库，刷新页面后自动恢复。经典界面实现位于
+  `classic-web/assets/app.portal.js`，Vue 界面实现位于
+  `frontend/src/playground.js`、`frontend/src/utils/draftStorage.js` 和
+  `frontend/src/views/PlaygroundView.vue`。
 - 集群控制台兼容契约 `/api/*`、`/healthz`。
 - 开通管理：邮箱来源、Outlook 号池、并发注册、低水位补号、实时日志。
 - 注册结果先落入 Provisioner 队列，再幂等调用 `/admin/api/tokens/import-chatgpt-token`；失败每 60 秒重试。

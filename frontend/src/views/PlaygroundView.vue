@@ -10,6 +10,7 @@ import MediaLightbox from '../components/MediaLightbox.vue'
 import { pointsLabel } from '../credits'
 import { sortResolutions } from '../utils/format'
 import { copyText } from '../utils/clipboard'
+import { loadReferenceDraft, saveReferenceDraft } from '../utils/draftStorage'
 
 const route = useRoute()
 const router = useRouter()
@@ -41,6 +42,49 @@ watch(deai,       (v) => { draft.deai = v })
 
 const refImages = ref([])      // [{ name, dataUrl }]
 const fileInput = ref(null)
+const REFERENCE_DRAFT_KEY = 'image2api-playground-references-v1'
+let referenceDraftReady = false
+let referenceSaveTimer = null
+
+function storableRefs() {
+  return refImages.value.map((item) => ({
+    name: item.name || 'reference',
+    file: item.file || undefined,
+    dataUrl: item.dataUrl || undefined,
+    url: item.url || undefined,
+  }))
+}
+
+watch(refImages, () => {
+  if (!referenceDraftReady) return
+  clearTimeout(referenceSaveTimer)
+  referenceSaveTimer = setTimeout(() => {
+    saveReferenceDraft(REFERENCE_DRAFT_KEY, storableRefs()).catch(() => {})
+  }, 100)
+}, { deep: true })
+
+async function restoreReferenceDraft() {
+  try {
+    const savedRefs = await loadReferenceDraft(REFERENCE_DRAFT_KEY)
+    const restored = []
+    for (const item of savedRefs.slice(0, maxRefs.value)) {
+      if (!item || (!item.file && !item.dataUrl && !item.url)) continue
+      const restoredItem = { name: item.name || 'reference' }
+      if (item.file) {
+        restoredItem.file = item.file
+        restoredItem.thumb = await makeThumb(item.file)
+      } else if (item.dataUrl) {
+        restoredItem.dataUrl = item.dataUrl
+      } else {
+        restoredItem.url = item.url
+        restoredItem.thumb = serverThumb(item.url)
+      }
+      restored.push(restoredItem)
+    }
+    refImages.value = restored
+  } catch { /* private mode/storage disabled: keep the page usable */ }
+  referenceDraftReady = true
+}
 
 // Concurrent generation: each 生成 click fires an INDEPENDENT /generate and adds
 // a card — the UI never locks, so several can run at once. `tasks` holds the
@@ -665,7 +709,7 @@ async function storedLastFrameDataUrl(url) {
 function onKey(e) { if (e.key === 'Escape') lightbox.value = null }
 
 onMounted(async () => {
-  refreshMe()   // pull the latest real balance
+  await refreshMe()   // pull the latest real balance
   const [mm, pp, dp] = await Promise.all([api('/managed-models'), api('/video-presets'), api('/deai-pricing')])
   allModels.value = mm.data?.data || []
   presets.value = pp.data?.data || []
@@ -699,6 +743,7 @@ onMounted(async () => {
     modelId.value = chosen.id
     applyModelDefaults()
   }
+  await restoreReferenceDraft()
   window.addEventListener('keydown', onKey)
   document.addEventListener('paste', onPaste)
   // Fill the grid with the user's recent results, then refresh every 3s so
@@ -710,6 +755,8 @@ onUnmounted(() => {
   window.removeEventListener('keydown', onKey)
   document.removeEventListener('paste', onPaste)
   clearInterval(pollTimer)
+  clearTimeout(referenceSaveTimer)
+  if (referenceDraftReady) saveReferenceDraft(REFERENCE_DRAFT_KEY, storableRefs()).catch(() => {})
 })
 </script>
 

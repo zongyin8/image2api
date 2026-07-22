@@ -64,6 +64,62 @@
     apiKeyInfo: null,         // /admin/api/auth/api-key 返回的 {key_preview,...}（无则 null）
     apiKeyPlain: "",          // 刚 mint 出来的明文 key（仅本次会话内存，供复制）
   };
+  const PROMPT_DRAFT_KEY = "image2api_classic_prompt_draft_v1";
+  const REFERENCE_DRAFT_KEY = "image2api-classic-references-v1";
+
+  function savePromptDraft() {
+    try { localStorage.setItem(PROMPT_DRAFT_KEY, els.prompt.value || ""); } catch {}
+  }
+
+  function restorePromptDraft() {
+    try { els.prompt.value = localStorage.getItem(PROMPT_DRAFT_KEY) || ""; } catch {}
+    els.prompt.addEventListener("input", savePromptDraft);
+  }
+
+  function openDraftDb() {
+    return new Promise((resolve, reject) => {
+      if (!window.indexedDB) { reject(new Error("IndexedDB unavailable")); return; }
+      const req = indexedDB.open("ai-user-drafts", 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains("drafts")) db.createObjectStore("drafts");
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function saveReferenceDraft() {
+    try {
+      const db = await openDraftDb();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction("drafts", "readwrite");
+        const store = tx.objectStore("drafts");
+        if (state.referenceFiles.length) store.put(state.referenceFiles, REFERENCE_DRAFT_KEY);
+        else store.delete(REFERENCE_DRAFT_KEY);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
+      });
+      db.close();
+    } catch {}
+  }
+
+  async function restoreReferenceDraft() {
+    try {
+      const db = await openDraftDb();
+      const saved = await new Promise((resolve, reject) => {
+        const req = db.transaction("drafts", "readonly").objectStore("drafts").get(REFERENCE_DRAFT_KEY);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      db.close();
+      if (!state.referenceFiles.length && Array.isArray(saved)) {
+        state.referenceFiles = saved.filter((file) => file instanceof Blob).slice(0, MAX_REF);
+        renderReferences();
+      }
+    } catch {}
+  }
   // 网关 会话 token 同时镜像到 gw_token（网关 前端约定的键），
   // 让管理员跳转到 网关 后台（同源 SPA）时能直接复用登录态。
   function setSessionToken(token) {
@@ -322,6 +378,7 @@
       return `<div class="reference-item"><img class="reference-preview" src="${url}" alt="${escapeHtml(file.name)}" title="${escapeHtml(file.name)}" /><button class="reference-remove" type="button" data-remove-ref="${index}" aria-label="移除">&times;</button></div>`;
     }).join("");
     updatePickBtn();
+    void saveReferenceDraft();
   }
 
   // 网关 后台是同源 Vue SPA，登录态就是 localStorage 里的 gw_token。
@@ -1954,6 +2011,7 @@
     if (!item) return;
     const text = item.dataset.prompt || "";
     els.prompt.value = els.prompt.value.trim() ? `${els.prompt.value.trim()}\uff0c${text}` : text;
+    savePromptDraft();
     if (state.presetTab === "image") setMode("image");
     els.prompt.focus();
     els.presetPopover.classList.add("hidden");
@@ -2495,6 +2553,7 @@
     showPage("home");
   }
 
+  restorePromptDraft(); void restoreReferenceDraft();
   updateAuthUI(); render(); renderPresets(); setMode("text"); refreshQualityOptions(); updateCostHint(); initSideNav(); initMyImages(); void loadPricing(); void loadVideoConfig(); void loadAdminUrl(); void loadImageModels();
   if (state.key) {
     // 已存 token：校验会话（/me），成功后再拉公告与充值信息；失败则提示重新登录。
