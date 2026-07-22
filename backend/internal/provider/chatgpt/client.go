@@ -12,6 +12,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"math/rand"
 	stdhttp "net/http"
 	"net/url"
 	"os"
@@ -39,6 +40,7 @@ type Client struct {
 	proxy     string
 	deviceID  string
 	sessionID string
+	fp        fingerprint
 }
 
 type fileEntry struct {
@@ -61,7 +63,70 @@ func NewClient(proxy string) *Client {
 		proxy:     strings.TrimSpace(proxy),
 		deviceID:  newUUID(),
 		sessionID: newUUID(),
+		fp:        randomChatGPTFingerprint(),
 	}
+}
+
+// fingerprint is a self-consistent desktop-Chrome identity: a TLS ClientHello
+// profile paired with the User-Agent and Client-Hint headers of the SAME Chrome
+// major, so the JA3 and the advertised browser version never disagree (mixing
+// them is the single biggest anti-bot tell). Only profiles verified to pass
+// chatgpt.com's Cloudflare edge are included — newer JA3s (Chrome 120+) are
+// 403'd there, so the pool is capped at Chrome 117.
+type fingerprint struct {
+	profile         profiles.ClientProfile
+	userAgent       string
+	secCHUA         string
+	fullVersionList string
+	fullVersion     string
+	platform        string
+	platformVersion string
+	arch            string
+	bitness         string
+}
+
+func uaWin(v string) string {
+	return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + v + " Safari/537.36"
+}
+
+func uaMac(v string) string {
+	return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + v + " Safari/537.36"
+}
+
+// chatgptFingerprints rotates across four CF-passing Chrome majors × Windows/macOS.
+// A fresh Client (one per generation task) draws one at random, so different
+// accounts/tasks present different JA3 + UA + device-id instead of one shared
+// static signature. Do NOT add Chrome 120+ profiles: verified 403 at chatgpt.com
+// (tls-client Chrome_110/111/112/117 pass 4/4; 120/124/131/133 fail 0/4).
+var chatgptFingerprints = []fingerprint{
+	{profile: profiles.Chrome_110, userAgent: uaWin("110.0.0.0"), fullVersion: "110.0.5481.178", platform: `"Windows"`, platformVersion: `"15.0.0"`, arch: `"x86"`, bitness: `"64"`,
+		secCHUA:         `"Not A(Brand";v="24", "Chromium";v="110", "Google Chrome";v="110"`,
+		fullVersionList: `"Not A(Brand";v="24.0.0.0", "Chromium";v="110.0.5481.178", "Google Chrome";v="110.0.5481.178"`},
+	{profile: profiles.Chrome_110, userAgent: uaMac("110.0.0.0"), fullVersion: "110.0.5481.178", platform: `"macOS"`, platformVersion: `"13.2.1"`, arch: `"arm"`, bitness: `"64"`,
+		secCHUA:         `"Not A(Brand";v="24", "Chromium";v="110", "Google Chrome";v="110"`,
+		fullVersionList: `"Not A(Brand";v="24.0.0.0", "Chromium";v="110.0.5481.178", "Google Chrome";v="110.0.5481.178"`},
+	{profile: profiles.Chrome_111, userAgent: uaWin("111.0.0.0"), fullVersion: "111.0.5563.147", platform: `"Windows"`, platformVersion: `"15.0.0"`, arch: `"x86"`, bitness: `"64"`,
+		secCHUA:         `"Google Chrome";v="111", "Not(A:Brand";v="8", "Chromium";v="111"`,
+		fullVersionList: `"Google Chrome";v="111.0.5563.147", "Not(A:Brand";v="8.0.0.0", "Chromium";v="111.0.5563.147"`},
+	{profile: profiles.Chrome_111, userAgent: uaMac("111.0.0.0"), fullVersion: "111.0.5563.147", platform: `"macOS"`, platformVersion: `"13.3.1"`, arch: `"arm"`, bitness: `"64"`,
+		secCHUA:         `"Google Chrome";v="111", "Not(A:Brand";v="8", "Chromium";v="111"`,
+		fullVersionList: `"Google Chrome";v="111.0.5563.147", "Not(A:Brand";v="8.0.0.0", "Chromium";v="111.0.5563.147"`},
+	{profile: profiles.Chrome_112, userAgent: uaWin("112.0.0.0"), fullVersion: "112.0.5615.138", platform: `"Windows"`, platformVersion: `"15.0.0"`, arch: `"x86"`, bitness: `"64"`,
+		secCHUA:         `"Chromium";v="112", "Google Chrome";v="112", "Not:A-Brand";v="99"`,
+		fullVersionList: `"Chromium";v="112.0.5615.138", "Google Chrome";v="112.0.5615.138", "Not:A-Brand";v="99.0.0.0"`},
+	{profile: profiles.Chrome_112, userAgent: uaMac("112.0.0.0"), fullVersion: "112.0.5615.138", platform: `"macOS"`, platformVersion: `"13.4.1"`, arch: `"arm"`, bitness: `"64"`,
+		secCHUA:         `"Chromium";v="112", "Google Chrome";v="112", "Not:A-Brand";v="99"`,
+		fullVersionList: `"Chromium";v="112.0.5615.138", "Google Chrome";v="112.0.5615.138", "Not:A-Brand";v="99.0.0.0"`},
+	{profile: profiles.Chrome_117, userAgent: uaWin("117.0.0.0"), fullVersion: "117.0.5938.150", platform: `"Windows"`, platformVersion: `"15.0.0"`, arch: `"x86"`, bitness: `"64"`,
+		secCHUA:         `"Chromium";v="117", "Not;A=Brand";v="8", "Google Chrome";v="117"`,
+		fullVersionList: `"Chromium";v="117.0.5938.150", "Not;A=Brand";v="8.0.0.0", "Google Chrome";v="117.0.5938.150"`},
+	{profile: profiles.Chrome_117, userAgent: uaMac("117.0.0.0"), fullVersion: "117.0.5938.150", platform: `"macOS"`, platformVersion: `"13.5.0"`, arch: `"arm"`, bitness: `"64"`,
+		secCHUA:         `"Chromium";v="117", "Not;A=Brand";v="8", "Google Chrome";v="117"`,
+		fullVersionList: `"Chromium";v="117.0.5938.150", "Not;A=Brand";v="8.0.0.0", "Google Chrome";v="117.0.5938.150"`},
+}
+
+func randomChatGPTFingerprint() fingerprint {
+	return chatgptFingerprints[rand.Intn(len(chatgptFingerprints))]
 }
 
 func (c *Client) SetProxy(proxy string) {
@@ -273,9 +338,11 @@ func (c *Client) newDirectSession(accessToken string) (tlsclient.HttpClient, err
 func (c *Client) newSessionP(accessToken string, useProxy bool) (tlsclient.HttpClient, error) {
 	options := []tlsclient.HttpClientOption{
 		tlsclient.WithTimeoutSeconds(600),
-		// Match the Python reference (curl_cffi impersonate="chrome110"): the
-		// Chrome_133 JA3/JA4 was tripping Cloudflare on the bootstrap GET (403).
-		tlsclient.WithClientProfile(profiles.Chrome_110),
+		// Rotate the JA3 across the CF-passing pool (Chrome 110-117); the task's
+		// fingerprint is fixed for the life of this Client so every request in one
+		// generation shares a coherent JA3 + UA. Chrome 120+ is 403'd at chatgpt.com
+		// (verified: 110/111/112/117 pass 4/4, 120/124/131/133 fail 0/4).
+		tlsclient.WithClientProfile(c.fp.profile),
 		tlsclient.WithRandomTLSExtensionOrder(),
 	}
 	if useProxy && c.proxy != "" {
@@ -300,19 +367,19 @@ func (c *Client) baseHeaders(accessToken string) http.Header {
 		"origin":                      {baseURL},
 		"priority":                    {"u=1, i"},
 		"referer":                     {baseURL + "/"},
-		"sec-ch-ua":                   {`"Microsoft Edge";v="149", "Chromium";v="149", "Not)A;Brand";v="24"`},
-		"sec-ch-ua-arch":              {`"x86"`},
-		"sec-ch-ua-bitness":           {`"64"`},
-		"sec-ch-ua-full-version":      {`"149.0.4022.69"`},
-		"sec-ch-ua-full-version-list": {`"Microsoft Edge";v="149.0.4022.69", "Chromium";v="149.0.7827.115", "Not)A;Brand";v="24.0.0.0"`},
+		"sec-ch-ua":                   {c.fp.secCHUA},
+		"sec-ch-ua-arch":              {c.fp.arch},
+		"sec-ch-ua-bitness":           {c.fp.bitness},
+		"sec-ch-ua-full-version":      {`"` + c.fp.fullVersion + `"`},
+		"sec-ch-ua-full-version-list": {c.fp.fullVersionList},
 		"sec-ch-ua-mobile":            {"?0"},
 		"sec-ch-ua-model":             {`""`},
-		"sec-ch-ua-platform":          {`"Windows"`},
-		"sec-ch-ua-platform-version":  {`"19.0.0"`},
+		"sec-ch-ua-platform":          {c.fp.platform},
+		"sec-ch-ua-platform-version":  {c.fp.platformVersion},
 		"sec-fetch-dest":              {"empty"},
 		"sec-fetch-mode":              {"cors"},
 		"sec-fetch-site":              {"same-origin"},
-		"user-agent":                  {defaultUserAgent},
+		"user-agent":                  {c.fp.userAgent},
 		"authorization":               {"Bearer " + strings.TrimSpace(accessToken)},
 	}
 }
@@ -338,12 +405,12 @@ func (c *Client) bootstrap(ctx context.Context, session tlsclient.HttpClient) ([
 	}
 	req = req.WithContext(ctx)
 	req.Header = http.Header{
-		"user-agent":                {defaultUserAgent},
+		"user-agent":                {c.fp.userAgent},
 		"accept":                    {"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
 		"accept-language":           {"zh-CN,zh;q=0.9,en;q=0.8"},
-		"sec-ch-ua":                 {`"Microsoft Edge";v="143", "Chromium";v="143", "Not A(Brand";v="24"`},
+		"sec-ch-ua":                 {c.fp.secCHUA},
 		"sec-ch-ua-mobile":          {"?0"},
-		"sec-ch-ua-platform":        {`"Windows"`},
+		"sec-ch-ua-platform":        {c.fp.platform},
 		"sec-fetch-dest":            {"document"},
 		"sec-fetch-mode":            {"navigate"},
 		"sec-fetch-site":            {"none"},
@@ -366,7 +433,7 @@ func (c *Client) bootstrap(ctx context.Context, session tlsclient.HttpClient) ([
 }
 
 func (c *Client) getChatRequirements(ctx context.Context, session tlsclient.HttpClient, accessToken string, scriptSources []string, dataBuild string) (*chatRequirements, error) {
-	pToken := buildLegacyRequirementsToken(defaultUserAgent, scriptSources, dataBuild)
+	pToken := buildLegacyRequirementsToken(c.fp.userAgent, scriptSources, dataBuild)
 	path := "/backend-api/sentinel/chat-requirements/prepare"
 	reqBody, _ := json.Marshal(map[string]any{"p": pToken})
 	req, err := http.NewRequest(http.MethodPost, baseURL+path, bytes.NewReader(reqBody))
@@ -398,7 +465,7 @@ func (c *Client) getChatRequirements(ctx context.Context, session tlsclient.Http
 	}
 	proofToken := ""
 	if powInfo, _ := prepare["proofofwork"].(map[string]any); powInfo["required"] == true {
-		proofToken, err = buildProofToken(strings.TrimSpace(stringValue(powInfo["seed"])), strings.TrimSpace(stringValue(powInfo["difficulty"])), defaultUserAgent, scriptSources, dataBuild)
+		proofToken, err = buildProofToken(strings.TrimSpace(stringValue(powInfo["seed"])), strings.TrimSpace(stringValue(powInfo["difficulty"])), c.fp.userAgent, scriptSources, dataBuild)
 		if err != nil {
 			return nil, err
 		}
@@ -620,13 +687,13 @@ func (c *Client) uploadRawFile(ctx context.Context, session tlsclient.HttpClient
 		"content-type":       {mimeType},
 		"origin":             {baseURL},
 		"referer":            {baseURL + "/"},
-		"sec-ch-ua":          {`"Microsoft Edge";v="143", "Chromium";v="143", "Not A(Brand";v="24"`},
+		"sec-ch-ua":          {c.fp.secCHUA},
 		"sec-ch-ua-mobile":   {"?0"},
-		"sec-ch-ua-platform": {`"Windows"`},
+		"sec-ch-ua-platform": {c.fp.platform},
 		"sec-fetch-dest":     {"empty"},
 		"sec-fetch-mode":     {"cors"},
 		"sec-fetch-site":     {"cross-site"},
-		"user-agent":         {defaultUserAgent},
+		"user-agent":         {c.fp.userAgent},
 		"x-ms-blob-type":     {"BlockBlob"},
 		"x-ms-version":       {"2020-04-08"},
 	}

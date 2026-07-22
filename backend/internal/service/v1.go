@@ -2720,10 +2720,12 @@ func (s *V1Service) generateChatGPTImage(ctx context.Context, eventID string, mo
 	// account dead. Auth/quota fail over immediately (see runPoolWithFailover).
 	var imageURL string
 	data, err := s.runPoolWithFailover(ctx, eventID, "chatgpt", active, "image", func(token model.TokenAccount) ([]byte, error) {
-		chatgptClient := s.chatgpt
-		if proxy := accountProxyURL(token); proxy != "" {
-			chatgptClient = chatgpt.NewClient(proxy)
-		}
+		// Fresh client per task so every generation rotates its fingerprint (JA3 +
+		// UA + device-id) instead of reusing the one long-lived s.chatgpt singleton
+		// (which would pin a single fp/device-id across all local-egress accounts).
+		// Proxy is taken from the account (empty = local egress; operator attaches
+		// proxies per account).
+		chatgptClient := chatgpt.NewClient(accountProxyURL(token))
 		d, meta, genErr := chatgptClient.GenerateImage(ctx, token.Value, in.Prompt, modelItem.ID, aspectRatio, resolution, refs, !urlOnly)
 		if genErr == nil {
 			imageURL = strings.TrimSpace(stringValue(meta["image_url"]))
