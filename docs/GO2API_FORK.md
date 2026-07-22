@@ -52,6 +52,10 @@ Nginx 参考配置是 `ops/nginx-tu.go2api.cc.conf`。其中 Provisioner key 是
 - 经典用户界面的生成结果卡片与 Vue `/new/` 保持一致：鼠标悬停时
   右上角显示复制、下载、加入参考图、删除四个操作；触屏设备常显。
   删除操作通过当前用户鉴权的 `/admin/api/my-files` 删除本人作品。
+- 三个用户生成前端的图片放大页支持点位编辑：点击图片添加编号和局部
+  修改意见，前端按 ChatGPT Image 2.0 网页版格式生成百分比坐标提示词，
+  再把当前图片作为唯一参考图提交。协议取证和维护边界见
+  `docs/POINT_EDIT_PROTOCOL.md`；不要新增不存在的 `annotations` 后端字段。
 - 集群控制台兼容契约 `/api/*`、`/healthz`。
 - 开通管理：邮箱来源、Outlook 号池、并发注册、低水位补号、实时日志。
 - 注册结果先落入 Provisioner 队列，再幂等调用 `/admin/api/tokens/import-chatgpt-token`；失败每 60 秒重试。

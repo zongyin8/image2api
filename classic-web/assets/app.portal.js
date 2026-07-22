@@ -152,8 +152,9 @@
     creditState: $("creditState"), userRole: $("userRole"), userInfo: $("userInfo"), apiRole: $("apiRole"), apiInfo: $("apiInfo"), redeemCodeInput: $("redeemCodeInput"), redeemBtn: $("redeemBtn"), redeemMessage: $("redeemMessage"), purchaseBtn: $("purchaseBtn"), rechargeHistoryList: $("rechargeHistoryList"), refreshRechargeHistoryBtn: $("refreshRechargeHistoryBtn"), historyList: $("historyList"), refreshHistoryBtn: $("refreshHistoryBtn"),
     centerModal: $("centerModal"), centerModalTitle: $("centerModalTitle"), centerModalMessage: $("centerModalMessage"), centerModalCancel: $("centerModalCancel"), centerModalConfirm: $("centerModalConfirm"),
     announceModal: $("announceModal"), announceModalBody: $("announceModalBody"), announceModalClose: $("announceModalClose"),
-    lightbox: $("lightbox"), lightboxImg: $("lightboxImg"), closeLightbox: $("closeLightbox"),
+    lightbox: $("lightbox"), lightboxStage: $("lightboxStage"), lightboxImg: $("lightboxImg"), closeLightbox: $("closeLightbox"),
     zoomOutBtn: $("zoomOutBtn"), zoomInBtn: $("zoomInBtn"), rotateLeftBtn: $("rotateLeftBtn"), rotateRightBtn: $("rotateRightBtn"), resetViewBtn: $("resetViewBtn"), downloadLightbox: $("downloadLightbox"), prevImageBtn: $("prevImageBtn"), nextImageBtn: $("nextImageBtn"),
+    pointEditBtn: $("pointEditBtn"), pointEditLayer: $("pointEditLayer"), pointEditPanel: $("pointEditPanel"), pointEditCount: $("pointEditCount"), pointEditList: $("pointEditList"), pointEditOverall: $("pointEditOverall"), pointEditSubmit: $("pointEditSubmit"),
   };
 
   function uid() { return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`; }
@@ -945,6 +946,7 @@
 
 
   const view = { scale: 1, rotate: 0, x: 0, y: 0, dragging: false, startX: 0, startY: 0, baseX: 0, baseY: 0, images: [], index: 0 };
+  const pointEdit = { active: false, points: [], submitting: false };
   function clamp(value, min, max) { return Math.min(max, Math.max(min, value)); }
   function applyImageView() {
     els.lightboxImg.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.scale}) rotate(${view.rotate}deg)`;
@@ -952,6 +954,104 @@
   function resetImageView() {
     view.scale = 1; view.rotate = 0; view.x = 0; view.y = 0; view.dragging = false;
     applyImageView();
+  }
+  function syncPointEditLayer() {
+    if (!pointEdit.active || !els.pointEditLayer || !els.lightboxStage) return;
+    const imageRect = els.lightboxImg.getBoundingClientRect();
+    const stageRect = els.lightboxStage.getBoundingClientRect();
+    if (!imageRect.width || !imageRect.height) return;
+    Object.assign(els.pointEditLayer.style, {
+      left: `${imageRect.left - stageRect.left}px`,
+      top: `${imageRect.top - stageRect.top}px`,
+      width: `${imageRect.width}px`,
+      height: `${imageRect.height}px`,
+    });
+  }
+  function renderPointEditor(focusIndex = -1) {
+    if (!els.pointEditLayer || !els.pointEditList) return;
+    els.pointEditCount.textContent = `${pointEdit.points.length} 条局部修改`;
+    els.pointEditLayer.innerHTML = pointEdit.points.map((point, index) =>
+      `<button type="button" class="point-edit-marker" data-point-focus="${index}" style="left:${point.x}%;top:${point.y}%">${index + 1}</button>`
+    ).join("");
+    els.pointEditList.innerHTML = pointEdit.points.length ? pointEdit.points.map((point, index) =>
+      `<div class="point-edit-row"><span class="point-edit-index">${index + 1}</span><span class="point-edit-coord">${point.x.toFixed(1)}%, ${point.y.toFixed(1)}%</span><input type="text" data-point-input="${index}" value="${escapeHtml(point.text)}" placeholder="描述这里需要怎么改"/><button type="button" class="point-edit-remove" data-point-remove="${index}" title="删除标记">&times;</button></div>`
+    ).join("") : `<div class="point-edit-empty">在图片上点击需要修改的位置</div>`;
+    syncPointEditLayer();
+    if (focusIndex >= 0) requestAnimationFrame(() => els.pointEditList.querySelector(`[data-point-input="${focusIndex}"]`)?.focus());
+  }
+  function setPointToolsDisabled(disabled) {
+    [els.zoomOutBtn, els.zoomInBtn, els.rotateLeftBtn, els.rotateRightBtn, els.resetViewBtn].forEach(btn => { if (btn) btn.disabled = disabled; });
+  }
+  function openPointEditor() {
+    pointEdit.active = true;
+    pointEdit.points = [];
+    pointEdit.submitting = false;
+    if (els.pointEditOverall) els.pointEditOverall.value = "";
+    resetImageView();
+    els.lightbox.classList.add("point-editing");
+    els.pointEditLayer.classList.remove("hidden");
+    els.pointEditPanel.classList.remove("hidden");
+    els.pointEditBtn.classList.add("active");
+    setPointToolsDisabled(true);
+    renderPointEditor();
+    requestAnimationFrame(syncPointEditLayer);
+  }
+  function closePointEditor() {
+    pointEdit.active = false;
+    pointEdit.points = [];
+    pointEdit.submitting = false;
+    els.lightbox.classList.remove("point-editing");
+    els.pointEditLayer?.classList.add("hidden");
+    els.pointEditPanel?.classList.add("hidden");
+    els.pointEditBtn?.classList.remove("active");
+    if (els.pointEditLayer) els.pointEditLayer.innerHTML = "";
+    if (els.pointEditOverall) els.pointEditOverall.value = "";
+    if (els.pointEditSubmit) { els.pointEditSubmit.disabled = false; els.pointEditSubmit.textContent = "生成"; }
+    setPointToolsDisabled(false);
+  }
+  function buildPointEditPrompt() {
+    const lines = pointEdit.points.filter(point => point.text.trim()).map((point, index) =>
+      `${index + 1}. (x: ${point.x.toFixed(1)}%, y: ${point.y.toFixed(1)}%) ${point.text.trim()}`
+    );
+    const overall = String(els.pointEditOverall?.value || "").trim();
+    if (overall) lines.push(overall);
+    return lines.join("\n\n");
+  }
+  async function submitPointEdit() {
+    if (pointEdit.submitting) return;
+    const editPrompt = buildPointEditPrompt();
+    if (!editPrompt) { showToast("请填写至少一条修改意见", "error"); return; }
+    const src = view.images[view.index] || els.lightboxImg.src;
+    pointEdit.submitting = true;
+    els.pointEditSubmit.disabled = true;
+    els.pointEditSubmit.textContent = "提交中";
+    try {
+      const response = await fetch(src, { credentials: "same-origin" });
+      if (!response.ok) throw new Error(`读取原图失败 (${response.status})`);
+      const blob = await response.blob();
+      const ext = (blob.type.split("/")[1] || "png").split("+")[0];
+      const file = new File([blob], `point-edit-${Date.now()}.${ext}`, { type: blob.type || "image/png" });
+      setMode("image");
+      const image2Option = Array.from(els.model?.options || []).find(option => option.value === "gpt-image-2");
+      if (image2Option) {
+        els.model.value = image2Option.value;
+        els.model.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      state.referenceFiles = [];
+      const added = await addReferenceFiles([file]);
+      if (!added) throw new Error("原图加入参考图失败");
+      els.prompt.value = editPrompt;
+      els.prompt.dispatchEvent(new Event("input", { bubbles: true }));
+      if (els.count) els.count.value = "1";
+      closePointEditor();
+      closeLightbox();
+      await generate();
+    } catch (error) {
+      pointEdit.submitting = false;
+      els.pointEditSubmit.disabled = false;
+      els.pointEditSubmit.textContent = "生成";
+      showToast(error.message || "局部编辑提交失败", "error");
+    }
   }
   function zoomImage(delta, originEvent) {
     const previous = view.scale;
@@ -972,6 +1072,7 @@
   }
   function showLightboxImage(index) {
     if (!view.images.length) return;
+    if (pointEdit.active) closePointEditor();
     view.index = (index + view.images.length) % view.images.length;
     const src = view.images[view.index];
     resetImageView();
@@ -993,6 +1094,7 @@
     showLightboxImage(view.index + delta);
   }
   function closeLightbox() {
+    if (pointEdit.active) closePointEditor();
     els.lightbox.classList.add("hidden");
     els.lightboxImg.src = "";
   }
@@ -2301,6 +2403,34 @@
   els.lightbox.onclick = (ev) => { if (ev.target === els.lightbox) closeLightbox(); };
   els.prevImageBtn.onclick = (ev) => { ev.stopPropagation(); switchLightbox(-1); };
   els.nextImageBtn.onclick = (ev) => { ev.stopPropagation(); switchLightbox(1); };
+  els.pointEditBtn.onclick = (ev) => { ev.stopPropagation(); pointEdit.active ? closePointEditor() : openPointEditor(); };
+  els.pointEditLayer.onclick = (ev) => {
+    const marker = ev.target.closest("[data-point-focus]");
+    if (marker) {
+      els.pointEditList.querySelector(`[data-point-input="${marker.dataset.pointFocus}"]`)?.focus();
+      return;
+    }
+    const rect = els.pointEditLayer.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    pointEdit.points.push({
+      x: Math.max(0, Math.min(100, Number((((ev.clientX - rect.left) / rect.width) * 100).toFixed(1)))),
+      y: Math.max(0, Math.min(100, Number((((ev.clientY - rect.top) / rect.height) * 100).toFixed(1)))),
+      text: "",
+    });
+    renderPointEditor(pointEdit.points.length - 1);
+  };
+  els.pointEditList.oninput = (ev) => {
+    const index = Number(ev.target.dataset.pointInput);
+    if (Number.isInteger(index) && pointEdit.points[index]) pointEdit.points[index].text = ev.target.value;
+  };
+  els.pointEditList.onclick = (ev) => {
+    const button = ev.target.closest("[data-point-remove]");
+    if (!button) return;
+    pointEdit.points.splice(Number(button.dataset.pointRemove), 1);
+    renderPointEditor();
+  };
+  els.pointEditOverall.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); void submitPointEdit(); } };
+  els.pointEditSubmit.onclick = () => { void submitPointEdit(); };
   els.zoomOutBtn.onclick = () => zoomImage(-0.2);
   els.zoomInBtn.onclick = () => zoomImage(0.2);
   els.rotateLeftBtn.onclick = () => { view.rotate -= 90; applyImageView(); };
@@ -2308,10 +2438,12 @@
   els.resetViewBtn.onclick = resetImageView;
   els.lightbox.addEventListener("wheel", (ev) => {
     if (els.lightbox.classList.contains("hidden")) return;
+    if (pointEdit.active) return;
     ev.preventDefault();
     zoomImage(ev.deltaY < 0 ? 0.15 : -0.15, ev);
   }, { passive: false });
   els.lightboxImg.addEventListener("pointerdown", (ev) => {
+    if (pointEdit.active) return;
     if (view.scale <= 1) return;
     view.dragging = true;
     view.startX = ev.clientX; view.startY = ev.clientY; view.baseX = view.x; view.baseY = view.y;
@@ -2324,10 +2456,12 @@
     applyImageView();
   });
   window.addEventListener("pointerup", () => { view.dragging = false; });
+  els.lightboxImg.addEventListener("load", () => requestAnimationFrame(syncPointEditLayer));
+  window.addEventListener("resize", syncPointEditLayer);
   window.addEventListener("keydown", (ev) => {
-    if (ev.key === "Escape") closeLightbox();
-    if (ev.key === "ArrowLeft") switchLightbox(-1);
-    if (ev.key === "ArrowRight") switchLightbox(1);
+    if (ev.key === "Escape") { if (pointEdit.active) closePointEditor(); else closeLightbox(); }
+    if (!pointEdit.active && ev.key === "ArrowLeft") switchLightbox(-1);
+    if (!pointEdit.active && ev.key === "ArrowRight") switchLightbox(1);
   });
   // 标记页面正在卸载（刷新/关闭/跳转）。用它区分「用户刷新打断的在途请求」与真正的生成失败：
   // 卸载期间被打断的 fetch（Failed to fetch）不当失败落盘，改留成可恢复占位，进入页面自动找回结果。
@@ -2402,18 +2536,7 @@
   function openMyImgLightbox(path) {
     const it = myImg.items.find(x => x.path === path);
     if (!it) return;
-    const full = it.url || it.thumbnail_url || "";
-    let ov = document.getElementById("myImgLightbox");
-    if (!ov) {
-      ov = document.createElement("div");
-      ov.id = "myImgLightbox";
-      ov.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.88);display:none;align-items:center;justify-content:center;flex-direction:column;padding:24px;cursor:zoom-out";
-      ov.addEventListener("click", () => { ov.style.display = "none"; });
-      document.body.appendChild(ov);
-    }
-    const cap = it.prompt ? `<div style="color:#eee;margin-top:14px;max-width:82vw;text-align:center;font-size:13px;line-height:1.55;max-height:18vh;overflow:auto">${escapeHtml(it.prompt)}</div>` : "";
-    ov.innerHTML = `<img src="${escapeHtml(full)}" alt="" style="max-width:94vw;max-height:80vh;object-fit:contain;border-radius:8px;box-shadow:0 10px 44px rgba(0,0,0,.55)"/>${cap}<div style="color:#aaa;margin-top:10px;font-size:12px">点击任意处关闭 · <a href="${escapeHtml(full)}" target="_blank" rel="noopener" style="color:#7ab8ff">查看/下载原图</a></div>`;
-    ov.style.display = "flex";
+    openLightbox(it.url || it.thumbnail_url || "");
   }
   function myImgSaveBlob(blob, name) {
     const url = URL.createObjectURL(blob);

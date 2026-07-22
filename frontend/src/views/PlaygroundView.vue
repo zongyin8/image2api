@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, jsonBody, generatedUrl } from '../api'
 import { auth, refreshMe } from '../auth'
@@ -648,6 +648,26 @@ function useAsRef(item) {
   flash('已加入参考图')
 }
 
+async function submitPointEdit({ src, prompt: editPrompt }) {
+  if (!src || !editPrompt?.trim()) return
+  const supportsReference = (item) => item?.enabled !== false && item?.type === 'image'
+    && (item?.image_to_image || Number(item?.max_reference_images || 0) > 0)
+  const target = allModels.value.find((item) => supportsReference(item)
+      && (item.id === 'gpt-image-2' || item.alias === 'gpt-image-2'))
+    || allModels.value.find(supportsReference)
+  if (!target) { flash('当前没有支持局部编辑的图片模型'); return }
+
+  mode.value = 'image'
+  modelId.value = target.id
+  applyModelDefaults()
+  refImages.value = [{ name: 'point-edit-source', url: src, thumb: serverThumb(src) }]
+  prompt.value = editPrompt.trim()
+  count.value = 1
+  lightbox.value = null
+  await nextTick()
+  await run()
+}
+
 // Grab the LAST frame of a video as a PNG data URL (same-origin → canvas isn't
 // tainted). Used to continue a video from where it ended (首尾帧 models).
 function lastFrameDataUrl(url) {
@@ -1022,6 +1042,8 @@ onUnmounted(() => {
       :prompt="lightbox.prompt"
       :meta="[lightbox.model, lightbox.ratio, lightbox.resolution, (lightbox.kind === 'video' ? lightbox.duration : '')].filter(Boolean).join(' · ')"
       :download-name="(lightbox.url || '').split('/').pop()"
+      :editable="lightbox.kind !== 'video'"
+      @edit="submitPointEdit"
       @close="lightbox = null" />
 
     <!-- Toast -->

@@ -1362,6 +1362,129 @@ select:focus {
   stroke-linejoin: round;
 }
 .tool-btn[disabled] { opacity: .35; cursor: not-allowed; }
+.tool-btn.active { background: #fff; color: #111827; opacity: 1; }
+
+.point-edit-layer {
+  position: absolute;
+  z-index: 2;
+  cursor: crosshair;
+}
+.point-edit-marker {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 28px;
+  height: 28px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #05070b;
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .5);
+  font-size: 12px;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.lightbox.point-editing img {
+  max-height: calc(100vh - 340px);
+  cursor: crosshair;
+}
+.lightbox.point-editing .nav-arrow { display: none !important; }
+.point-edit-panel {
+  position: fixed;
+  z-index: 4;
+  left: 50%;
+  bottom: calc(90px + env(safe-area-inset-bottom, 0));
+  transform: translateX(-50%);
+  width: min(760px, calc(100vw - 24px));
+  padding: 14px;
+  border-radius: var(--r-md);
+  background: #fff;
+  color: #111827;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .42);
+  user-select: text;
+}
+.point-edit-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+.point-edit-heading span { color: #64748b; font-size: 12px; }
+.point-edit-list {
+  display: grid;
+  gap: 8px;
+  max-height: 136px;
+  overflow-y: auto;
+}
+.point-edit-empty {
+  min-height: 40px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 7px;
+  color: #94a3b8;
+  font-size: 12px;
+  display: grid;
+  place-items: center;
+}
+.point-edit-row {
+  display: grid;
+  grid-template-columns: 26px auto minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 8px;
+}
+.point-edit-index {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #0f172a;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+}
+.point-edit-coord { color: #94a3b8; font: 10px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.point-edit-row input,
+.point-edit-compose input {
+  min-width: 0;
+  height: 38px;
+  border: 1px solid #dbe2ea;
+  border-radius: 7px;
+  padding: 0 11px;
+  color: #111827;
+  background: #fff;
+  outline: none;
+  font: inherit;
+}
+.point-edit-row input:focus,
+.point-edit-compose input:focus { border-color: #64748b; }
+.point-edit-remove {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 20px;
+  cursor: pointer;
+}
+.point-edit-remove:hover { color: #e11d48; background: #fff1f2; }
+.point-edit-compose { display: flex; gap: 8px; margin-top: 9px; }
+.point-edit-compose input { flex: 1; }
+.point-edit-compose button {
+  min-width: 76px;
+  height: 38px;
+  border: 0;
+  border-radius: 7px;
+  background: #0f172a;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+.point-edit-compose button:hover { background: #1e293b; }
+.point-edit-compose button:disabled { opacity: .5; cursor: wait; }
 
 /* 上一张 / 下一张 */
 .nav-arrow {
@@ -1391,6 +1514,14 @@ select:focus {
 .nav-arrow-left { left: 24px; }
 .nav-arrow-right { right: 24px; }
 .nav-arrow.hidden { display: none !important; }
+
+@media (max-width: 640px) {
+  .point-edit-panel { bottom: calc(78px + env(safe-area-inset-bottom, 0)); padding: 11px; }
+  .point-edit-heading span, .point-edit-coord { display: none; }
+  .point-edit-row { grid-template-columns: 26px minmax(0, 1fr) 32px; }
+  .lightbox.point-editing img { max-height: calc(100vh - 330px); }
+  .point-edit-list { max-height: 112px; }
+}
 
 /* --------------------------------------------------------------------------
    13. 页脚
