@@ -49,6 +49,9 @@ Nginx 参考配置是 `ops/nginx-tu.go2api.cc.conf`。其中 Provisioner key 是
   `classic-web/assets/app.portal.js`，Vue 界面实现位于
   `frontend/src/playground.js`、`frontend/src/utils/draftStorage.js` 和
   `frontend/src/views/PlaygroundView.vue`。
+- 经典用户界面的生成结果卡片与 Vue `/new/` 保持一致：鼠标悬停时
+  右上角显示复制、下载、加入参考图、删除四个操作；触屏设备常显。
+  删除操作通过当前用户鉴权的 `/admin/api/my-files` 删除本人作品。
 - 集群控制台兼容契约 `/api/*`、`/healthz`。
 - 开通管理：邮箱来源、Outlook 号池、并发注册、低水位补号、实时日志。
 - 注册结果先落入 Provisioner 队列，再幂等调用 `/admin/api/tokens/import-chatgpt-token`；失败每 60 秒重试。

@@ -824,6 +824,77 @@
   }
 
   function imageSrc(img) { return img.url || (img.b64_json ? `data:image/png;base64,${img.b64_json}` : ""); }
+  function installImageCardActionsStyle() {
+    if (document.getElementById("imageCardActionsStyle")) return;
+    const style = document.createElement("style");
+    style.id = "imageCardActionsStyle";
+    style.textContent = `
+      .image-card-actions{position:absolute;top:8px;right:8px;z-index:3;display:flex;gap:5px;opacity:0;transform:translateY(-3px);transition:opacity .16s ease,transform .16s ease}
+      .image-card:hover .image-card-actions,.image-card:focus-within .image-card-actions{opacity:1;transform:translateY(0)}
+      .image-card-action{width:30px;height:30px;padding:0;border:1px solid rgba(255,255,255,.2);border-radius:7px;background:rgba(17,24,39,.72);color:#fff;display:grid;place-items:center;font:700 17px/1 system-ui;text-decoration:none;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.2);backdrop-filter:blur(4px)}
+      .image-card-action:hover{background:rgba(17,24,39,.9);color:#fff}.image-card-action.danger:hover{background:rgba(220,38,38,.9)}
+      .output-list.select-mode .image-card-actions{display:none}
+      @media(hover:none),(pointer:coarse){.image-card-actions{opacity:1;transform:none}.image-card-action{width:32px;height:32px}}
+    `;
+    document.head.appendChild(style);
+  }
+  function imageCardActions(src) {
+    const safe = escapeHtml(src);
+    return `<div class="image-card-actions"><button class="image-card-action" type="button" data-image-action="copy" title="复制图片" aria-label="复制图片">&#10697;</button><a class="image-card-action" data-image-action="download" href="${safe}" download="ai-image.png" title="下载" aria-label="下载">&#8595;</a><button class="image-card-action" type="button" data-image-action="reference" title="作为参考图" aria-label="作为参考图">+</button><button class="image-card-action danger" type="button" data-image-action="delete" title="删除" aria-label="删除">&times;</button></div>`;
+  }
+  async function copyGeneratedImage(src) {
+    try {
+      const blob = await (await fetch(src, { credentials: "same-origin" })).blob();
+      const png = blob.type === "image/png" ? blob : await new Promise((resolve, reject) => {
+        createImageBitmap(blob).then(bitmap => {
+          const canvas = document.createElement("canvas");
+          canvas.width = bitmap.width; canvas.height = bitmap.height;
+          canvas.getContext("2d").drawImage(bitmap, 0, 0);
+          canvas.toBlob(out => out ? resolve(out) : reject(new Error("PNG conversion failed")), "image/png");
+        }).catch(reject);
+      });
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+      showToast("图片已复制", "ok");
+    } catch { showToast("复制失败，请使用下载按钮", "error"); }
+  }
+  async function useGeneratedImageAsReference(src) {
+    try {
+      const response = await fetch(src, { credentials: "same-origin" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      const ext = ((blob.type || "image/png").split("/")[1] || "png").split("+")[0];
+      setMode("image");
+      const added = await addReferenceFiles([new File([blob], `reference-${Date.now()}.${ext}`, { type: blob.type || "image/png" })]);
+      if (added > 0) { showToast("已加入参考图", "ok"); els.imageUploadBox.scrollIntoView({ behavior: "smooth", block: "nearest" }); }
+      else showToast("参考图已存在或已达上限", "error");
+    } catch { showToast("加入参考图失败", "error"); }
+  }
+  function generatedFileKey(src) {
+    try {
+      const path = new URL(src, location.origin).pathname;
+      const marker = "/images/";
+      const pos = path.indexOf(marker);
+      return pos >= 0 ? decodeURIComponent(path.slice(pos + marker.length)) : "";
+    } catch { return ""; }
+  }
+  function removeGeneratedImageLocally(src) {
+    for (const task of state.tasks) {
+      if (task.mode === "video") continue;
+      task.images = (task.images || []).filter(img => safeImageSrc(imageSrc(img)) !== src);
+    }
+    state.tasks = state.tasks.filter(task => task.mode === "video" || (task.images || []).length);
+    state.selected.delete(src);
+    saveTasks(); render();
+  }
+  async function deleteGeneratedImage(src) {
+    if (!confirm("确定删除这个作品？删除后不可恢复")) return;
+    const file = generatedFileKey(src);
+    try {
+      if (file) await api(`/admin/api/my-files?file=${encodeURIComponent(file)}`, { method: "DELETE", headers: authHeaders() });
+      removeGeneratedImageLocally(src);
+      showToast("已删除", "ok");
+    } catch (e) { showToast(e.message || "删除失败", "error"); }
+  }
   function taskResultImages(task, taskId) {
     return (Array.isArray(task?.data) ? task.data : [])
       .filter(item => item && (item.url || item.b64_json))
@@ -1038,7 +1109,7 @@
         const checkMark = state.selectMode
           ? `<span class="select-check${isSel ? " on" : ""}" aria-hidden="true">${isSel ? "✓" : ""}</span>`
           : "";
-        return `<div class="image-card${state.selectMode && isSel ? " selected" : ""}" data-src="${escapeHtml(src)}"><img src="${escapeHtml(src)}" data-preview="${escapeHtml(src)}" alt="result"/>${checkMark}<a class="download" href="${escapeHtml(src)}" download="ai-image.png">下载</a></div>`;
+        return `<div class="image-card${state.selectMode && isSel ? " selected" : ""}" data-src="${escapeHtml(src)}"><img src="${escapeHtml(src)}" data-preview="${escapeHtml(src)}" alt="result"/>${checkMark}${imageCardActions(src)}</div>`;
       }).join("");
       return `<article class="output-item"><div class="output-meta"><span>${escapeHtml(task.size || "比例：自动")} · ${escapeHtml(task.model)} • (${escapeHtml(task.creditCost || creditCostPerImage(task.quality || "low"))}积分) • ${escapeHtml(task.qualityLabel || "默认")} • ${escapeHtml(task.modeLabel || (task.mode === "image" ? "图生图" : "文生图"))}</span><span>${new Date(task.createdAt).toLocaleString()}</span></div><p class="output-prompt">${escapeHtml(task.prompt)}</p><div class="image-grid">${cards}</div></article>`;
     }).join("");
@@ -2212,6 +2283,18 @@
       if (card) { ev.preventDefault(); toggleSelectSrc(card.getAttribute("data-src")); }
       return;
     }
+    const action = ev.target.closest("[data-image-action]");
+    if (action) {
+      ev.stopPropagation();
+      if (action.dataset.imageAction === "download") return;
+      ev.preventDefault();
+      const card = action.closest(".image-card[data-src]");
+      const src = card?.getAttribute("data-src") || "";
+      if (action.dataset.imageAction === "copy") void copyGeneratedImage(src);
+      else if (action.dataset.imageAction === "reference") void useGeneratedImageAsReference(src);
+      else if (action.dataset.imageAction === "delete") void deleteGeneratedImage(src);
+      return;
+    }
     const img = ev.target.closest("img[data-preview]"); if (img) openLightbox(img.dataset.preview);
   };
   els.closeLightbox.onclick = closeLightbox;
@@ -2553,7 +2636,7 @@
     showPage("home");
   }
 
-  restorePromptDraft(); void restoreReferenceDraft();
+  installImageCardActionsStyle(); restorePromptDraft(); void restoreReferenceDraft();
   updateAuthUI(); render(); renderPresets(); setMode("text"); refreshQualityOptions(); updateCostHint(); initSideNav(); initMyImages(); void loadPricing(); void loadVideoConfig(); void loadAdminUrl(); void loadImageModels();
   if (state.key) {
     // 已存 token：校验会话（/me），成功后再拉公告与充值信息；失败则提示重新登录。
