@@ -23,6 +23,7 @@ import re
 import socket
 import ssl as _ssl
 import struct
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -162,6 +163,48 @@ class _ProxyIMAP4SSL(imaplib.IMAP4_SSL):
         raw = _socks5_tunnel(self._proxy_url, self.host, self.port, timeout=self._proxy_timeout)
         ctx = _ssl.create_default_context()
         return ctx.wrap_socket(raw, server_hostname=self.host)
+
+
+def _open_direct_imap(attempts: int = 3):
+    """Open Outlook IMAP directly, retrying transient DNS/TLS edge failures."""
+    last_error: Exception | None = None
+    for attempt in range(max(1, attempts)):
+        try:
+            try:
+                return imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT, timeout=30)
+            except TypeError:
+                socket.setdefaulttimeout(30)
+                return imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT)
+        except Exception as exc:
+            last_error = exc
+            if attempt + 1 < attempts:
+                time.sleep(0.5 * (attempt + 1))
+    assert last_error is not None
+    raise last_error
+
+
+def _open_imap(proxy: str | None = None):
+    """Use the configured proxy when possible, then fall back to direct IMAP.
+
+    Registration proxies commonly support HTTPS only and may accept the SOCKS
+    tunnel for port 993 before closing during TLS negotiation. Microsoft token
+    exchange and the OpenAI registration flow still use the configured proxy;
+    only mailbox retrieval falls back to the node's direct connection.
+    """
+    proxy_error: Exception | None = None
+    if proxy:
+        try:
+            return _ProxyIMAP4SSL(IMAP_HOST, IMAP_PORT, proxy, timeout=30)
+        except Exception as exc:
+            proxy_error = exc
+    try:
+        return _open_direct_imap()
+    except Exception as direct_error:
+        if proxy_error is not None:
+            raise MailError(
+                f"代理 IMAP 失败且直连回退失败：{direct_error}"
+            ) from direct_error
+        raise
 
 
 def imap_login_account(account: str) -> str:
@@ -314,14 +357,7 @@ def fetch_inbox(account: str, client_id: str, refresh_token: str, limit: int = 1
     auth_string = f"user={login_account}\x01auth=Bearer {token}\x01\x01"
 
     try:
-        if proxy:
-            imap = _ProxyIMAP4SSL(IMAP_HOST, IMAP_PORT, proxy, timeout=30)
-        else:
-            try:
-                imap = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT, timeout=30)
-            except TypeError:
-                socket.setdefaulttimeout(30)
-                imap = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT)
+        imap = _open_imap(proxy)
     except MailError:
         raise
     except Exception as exc:
