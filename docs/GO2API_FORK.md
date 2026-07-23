@@ -98,9 +98,10 @@ Go2Api 主机当前确认的部署基线：
 
 | 组件 | 镜像/版本 | 状态 |
 | --- | --- | --- |
-| Backend | `i2a-g2a-backend:e966d22` | 本地池忙时自动切 custom，已验证 |
+| Backend | `i2a-g2a-backend:75328d5` | 继承 custom 容量分流，并支持本地 `file://` HTML 调用 `/v1/*` |
 | Web | `i2a-g2a-web:f6e0b0f` | 已有模型 id 可直接由 custom 上游接管 |
-| Backend 回滚点 | `i2a-g2a-backend:5e2aa1c` | 保留，不得清理 |
+| Backend 第一回滚点 | `i2a-g2a-backend:e966d22` | custom 容量分流已验证，不支持 `Origin: null` |
+| Backend 基础回滚点 | `i2a-g2a-backend:5e2aa1c` | 指纹轮换基线，保留不得清理 |
 
 生产 Compose 的权威文件是 `/opt/image2api-g2a/docker-compose.yml`，project 名是
 `image2api`，后端容器名是 `image2api-backend-1`。源码目录中的 Compose 不能
