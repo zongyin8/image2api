@@ -98,6 +98,7 @@ It's more than an API proxy: it ships with **credit billing, CDK top-ups, referr
 
 #### 🔁 Account Pools + Smart Failover
 - Round-robin scheduling across the pool; one bad account doesn't break the whole
+- A custom OpenAI-compatible upstream can serve an existing model id without creating a duplicate model. For `gpt-image-2`, 1K prefers the local ChatGPT pool and falls back to custom when no local account has a free Redis concurrency slot; 2K/4K route directly to custom
 - **Out of quota → switch** · **auth expired → refresh & retry / kill** · **transient → retry same account ×3** · **bad params → fail fast**
 - **Pre-deducted credits**: atomic debit before generation, auto-refunded on failure, no over-spend under concurrency
 

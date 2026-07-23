@@ -63,6 +63,7 @@ Nginx 参考配置是 `ops/nginx-tu.go2api.cc.conf`。其中 Provisioner key 是
 - 账号管理支持单账号独立出口代理和多选批量修改代理、权重、状态；账号代理优先于节点全局 `proxy.url`，留空则回退全局配置。
 - “导入账号”可给整批账号预设同一代理；“添加账号”只接收一个账号。两者都会在 pending 账号启动后台校验前原子写入代理和权重，避免账号短暂直连或被提前调度。
 - Adobe Seedance 2.0 / Seedance 2.0 Fast 已接入，实测标准版和 Fast 均可不经日本代理直接调用；详细参数见 `docs/ADOBE_SEEDANCE.md`。
+- 自定义 OpenAI 兼容上游按现有 model id 接管，无需为 `gpt-image-2` 新建同名模型。该模型 1K 请求优先使用本地 ChatGPT 账号；只有本地无可用账号或所有本地账号的 Redis 单任务并发槽已满时才切 custom。2K/4K 请求直接走 custom。容量判断实现位于 `backend/internal/service/v1.go` 的 `hasAvailableProviderToken` 和 `effectiveImageProvider`。
 
 ## 服务器文件
 
@@ -89,6 +90,39 @@ Nginx 参考配置是 `ops/nginx-tu.go2api.cc.conf`。其中 Provisioner key 是
 - `/opt/gpt` 已完整删除；删除前的关键控制配置和文件清单保存在 cutover 备份目录。
 
 生产源码检出位于 `/opt/image2api-src`，运行配置和静态部署位于 `/opt/image2api-g2a`。
+
+## 当前生产版本（2026-07-23）
+
+Go2Api 主机当前确认的部署基线：
+
+| 组件 | 镜像/版本 | 状态 |
+| --- | --- | --- |
+| Backend | `i2a-g2a-backend:e966d22` | 本地池忙时自动切 custom，已验证 |
+| Web | `i2a-g2a-web:f6e0b0f` | 已有模型 id 可直接由 custom 上游接管 |
+| Backend 回滚点 | `i2a-g2a-backend:5e2aa1c` | 保留，不得清理 |
+
+生产 Compose 的权威文件是 `/opt/image2api-g2a/docker-compose.yml`，project 名是
+`image2api`，后端容器名是 `image2api-backend-1`。源码目录中的 Compose 不能
+覆盖运行目录中的生产配置。
+
+本次后端切换使用：
+
+```bash
+cd /opt/image2api-g2a
+docker compose -p image2api up -d --pull never --force-recreate backend
+docker inspect image2api-backend-1 \
+  --format '{{.Config.Image}}|{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}|{{.Created}}'
+```
+
+`e966d22` 已做受控验证：临时占满本地 ChatGPT 账号并发槽后，1K
+`gpt-image-2` 请求返回 HTTP 200，结果 URL 来自 `tu.2s21.cc`，事件日志的
+实际账号显示“我的备用2s21”。日志的 `provider` 字段仍可能显示模型原生的
+`chatgpt`，判断真实落点应看 `account_id/account_email`。
+
+构建 `e966d22` 时根分区一度接近满盘并引发短时 `rate limiter unavailable`。
+部署前必须先执行 `df -h /` 和 `docker system df`；只清理明确无用的构建缓存
+和 dangling 镜像，不得删除 PostgreSQL/RustFS 卷，也不得删除上述 backend
+回滚镜像。后端更新后还要验证登录接口不返回 rate limiter 错误。
 
 ## 首次部署
 
@@ -153,6 +187,22 @@ curl -fsS http://127.0.0.1:18099/healthz
 nginx -t
 ```
 
+后端滚动更新还要确认运行镜像、登录限流和最近真实路由：
+
+```bash
+docker inspect image2api-backend-1 \
+  --format '{{.Config.Image}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}|{{.Created}}|{{.RestartCount}}'
+
+# 使用不存在的账号测试时应返回 401“账号或密码错误”，不能返回
+# rate limiter unavailable。
+curl -sS -o /tmp/login-check.json -w '%{http_code}\n' \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"healthcheck@example.com","password":"invalid-health-check"}' \
+  https://tu.go2api.cc/admin/api/auth/login
+
+# 数据库 event_logs 中检查 account_email；provider 不是 custom 落点的唯一依据。
+```
+
 注册限流异常时检查 Redis 键：
 
 ```bash
@@ -174,6 +224,7 @@ docker exec image2api-redis-1 redis-cli --scan --pattern 'rl:auth:register:succe
 ## 4K 自定义上游
 
 - `gpt-image-2` 的 2K/4K 请求由 custom 账号转发到主力机。
+- `gpt-image-2` 的 1K 请求优先本地 ChatGPT 池；本地账号全部忙或不可用时由 custom 兜底。不要把判断退化为“数据库存在 active 账号”，必须保留 Redis 并发容量检查。
 - 生产 `base_url` 是 `https://img-main.2s21.cc:18443`，该域名必须保持 Cloudflare DNS only。
 - 主力机 18443 端口使用 `img-main.2s21.cc` 证书，并直连本机生图应用；Nginx 读写超时均为 600 秒。
 - 不要改回经过 Cloudflare 代理的 `https://tu.2s21.cc`，否则长耗时 4K 请求会出现 520/524。
