@@ -93,6 +93,7 @@ It's more than an API proxy: it ships with **credit billing, CDK top-ups, referr
 
 #### 🔌 OpenAI Compatible
 - Text-to-image `/v1/images/generations` · legacy image clients via `/v1/chat/completions` · Responses image tool via `/v1/responses` (both with SSE keep-alives) · image-to-image `/v1/images/edits` (multipart or JSON/data URL) · video `/v1/videos` (Sora-style async: create → poll → `/content`) · `/v1/models` · `/v1/balance`
+- Standalone `file://` HTML clients are supported: CORS accepts `Origin: null` only for `/v1/*`; admin and login routes remain restricted to configured site origins
 - **Strict OpenAI params**: `size` drives **both aspect ratio + resolution tier** (images by long edge → 1K/2K/4K, videos by short edge → 720p/1080p) — just swap `base_url` + `api_key` into an existing OpenAI SDK
 - Image results returned **inline as base64** — nothing stored server-side, privacy-friendly; the in-app **/docs** ships a size ↔ tier reference table
 

@@ -64,6 +64,7 @@ Nginx 参考配置是 `ops/nginx-tu.go2api.cc.conf`。其中 Provisioner key 是
 - “导入账号”可给整批账号预设同一代理；“添加账号”只接收一个账号。两者都会在 pending 账号启动后台校验前原子写入代理和权重，避免账号短暂直连或被提前调度。
 - Adobe Seedance 2.0 / Seedance 2.0 Fast 已接入，实测标准版和 Fast 均可不经日本代理直接调用；详细参数见 `docs/ADOBE_SEEDANCE.md`。
 - 自定义 OpenAI 兼容上游按现有 model id 接管，无需为 `gpt-image-2` 新建同名模型。该模型 1K 请求优先使用本地 ChatGPT 账号；只有本地无可用账号或所有本地账号的 Redis 单任务并发槽已满时才切 custom。2K/4K 请求直接走 custom。容量判断实现位于 `backend/internal/service/v1.go` 的 `hasAvailableProviderToken` 和 `effectiveImageProvider`。
+- 用户分发的单文件 HTML 会从 `file://` 发起请求，浏览器将其来源序列化为 `Origin: null`。`backend/internal/http/router/router.go` 只对这类来源的 `/v1/*` API 放行 CORS；不得扩大到 `/admin/*`，也不得改成全站 `*`。
 
 ## 服务器文件
 
@@ -201,6 +202,17 @@ curl -sS -o /tmp/login-check.json -w '%{http_code}\n' \
   https://tu.go2api.cc/admin/api/auth/login
 
 # 数据库 event_logs 中检查 account_email；provider 不是 custom 落点的唯一依据。
+
+# 本地 file:// HTML 客户端的预检必须返回 204，并带回 Origin: null；
+# 同一来源访问登录接口必须继续返回 403。
+curl -i -X OPTIONS https://tu.go2api.cc/v1/images/generations \
+  -H 'Origin: null' \
+  -H 'Access-Control-Request-Method: POST' \
+  -H 'Access-Control-Request-Headers: authorization,content-type'
+curl -i -X OPTIONS https://tu.go2api.cc/admin/api/auth/login \
+  -H 'Origin: null' \
+  -H 'Access-Control-Request-Method: POST' \
+  -H 'Access-Control-Request-Headers: content-type'
 ```
 
 注册限流异常时检查 Redis 键：

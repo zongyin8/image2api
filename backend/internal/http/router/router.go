@@ -5,6 +5,7 @@ import (
 	"backend/internal/http/handler"
 	"backend/internal/http/middleware"
 	"backend/internal/service"
+	"strings"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -41,10 +42,11 @@ func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.
 	engine.Use(gin.Recovery())
 	engine.Use(middleware.RequestID())
 	engine.Use(cors.New(cors.Config{
-		AllowOrigins:     cfg.CORSOrigins,
-		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Authorization", "Content-Type", "X-Request-Id"},
-		AllowCredentials: true,
+		AllowOrigins:               cfg.CORSOrigins,
+		AllowOriginWithContextFunc: allowLocalFileV1Origin,
+		AllowMethods:               []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:               []string{"Authorization", "Content-Type", "X-Request-Id"},
+		AllowCredentials:           true,
 	}))
 
 	engine.GET("/health", handlers.Health.Handle)
@@ -222,4 +224,11 @@ func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.
 	}
 
 	return engine
+}
+
+// Browsers serialize a file:// page's opaque origin as "null". Permit those
+// standalone API clients only on the bearer-authenticated OpenAI-compatible
+// surface; admin/session routes remain restricted to configured web origins.
+func allowLocalFileV1Origin(c *gin.Context, origin string) bool {
+	return origin == "null" && strings.HasPrefix(c.Request.URL.Path, "/v1/")
 }

@@ -93,6 +93,7 @@
 
 #### 🔌 OpenAI 兼容
 - 文生图 `/v1/images/generations` · 旧客户端生图兼容 `/v1/chat/completions` · Responses image tool `/v1/responses`（两者均支持 SSE 保活） · 图生图 `/v1/images/edits`（multipart 或 JSON/data URL） · 视频 `/v1/videos`(Sora 式异步:创建→轮询→`/content` 下载) · `/v1/models` · `/v1/balance`
+- 支持直接双击打开的本地 `file://` HTML 客户端：仅对携带 `Origin: null` 的 `/v1/*` 请求放行 CORS，管理后台与登录接口仍只允许配置的站点来源
 - **严格 OpenAI 入参**:`size` **同时决定比例 + 分辨率档**(图像看长边 → 1K/2K/4K,视频看短边 → 720p/1080p),改个 `base_url` + `api_key` 即接现有 OpenAI SDK
 - 图片结果 **base64 直返**,服务端不留存文件,隐私友好;站内 **/docs** 附「分辨率对照表」直接查 `size` 该传什么
 
