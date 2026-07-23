@@ -12,6 +12,10 @@ const baseUrl = ref(props.account?.base_url || '')
 const key = ref('')            // edit: blank = keep existing key
 const allModels = ref([])      // existing models to pick from
 const selected = ref(props.account?.models ? String(props.account.models).split(',').map((x) => x.trim()).filter(Boolean) : [])
+// An empty model list deliberately means "all existing model ids" on the
+// backend. Keep that as the safe default so OpenAI-compatible upstreams can
+// take over built-in ids such as gpt-image-2 without creating duplicate models.
+const limitModels = ref(selected.value.length > 0)
 const weight = ref(Number(props.account?.weight) || 0)
 const concurrency = ref(Number(props.account?.concurrency) || 1)
 const proxyURL = ref(props.account?.proxy_url || '')
@@ -44,7 +48,7 @@ async function submit() {
       base_url: baseUrl.value.trim(),
       key: key.value.trim(),       // blank in edit = keep existing
       protocol: 'openai',
-      models: selected.value.join(','),
+      models: limitModels.value ? selected.value.join(',') : '',
       weight: Number(weight.value) || 0,
       concurrency: Number(concurrency.value) || 1,
       proxy_url: proxyURL.value.trim(),
@@ -75,8 +79,9 @@ async function submit() {
       </div>
       <div class="p-5 space-y-3">
         <p class="text-xs text-slate-500 leading-relaxed">
-          上游就是一个账号:填基础 URL + Key。模型按 <strong class="text-slate-700">id 相同</strong>自动路由 ——
-          在「模型管理」加一个 provider=custom、id 与上游一致的模型即可从这个上游调用。代理留空时直连。
+          这是 OpenAI 兼容上游:填基础 URL + Key 即可。已有模型(例如 <code class="text-slate-700">gpt-image-2</code>)会按
+          <strong class="text-slate-700">模型 id</strong>自动路由,无需在「模型管理」重复创建同名模型。默认接管所有已有模型;
+          代理留空时直连。
         </p>
         <div>
           <label class="text-xs text-slate-500">备注名</label>
@@ -95,14 +100,15 @@ async function submit() {
           <input v-model="proxyURL" class="field font-mono text-xs" placeholder="socks5://user:pass@host:port" />
         </div>
         <div>
-          <div class="flex items-center justify-between mb-1.5">
-            <label class="text-xs text-slate-500">支持的模型(多选,不选 = 全部)</label>
-            <span class="text-[11px] text-slate-400">{{ selected.length ? `已选 ${selected.length}` : '全部' }}</span>
+          <label class="flex items-center gap-2 text-xs text-slate-500 mb-1.5 cursor-pointer">
+            <input v-model="limitModels" type="checkbox" class="accent-indigo-500" />
+            仅限制到指定模型(可选)
+            <span class="text-[11px] text-slate-400">{{ limitModels ? `已选 ${selected.length}` : '默认接管已有模型' }}</span>
+          </label>
+          <div v-if="limitModels && !allModels.length" class="text-xs text-slate-400 rounded-lg ring-1 ring-slate-200 bg-slate-50/60 p-3">
+            暂无可选模型。关闭此选项即可按模型 id 自动接管已有模型。
           </div>
-          <div v-if="!allModels.length" class="text-xs text-slate-400 rounded-lg ring-1 ring-slate-200 bg-slate-50/60 p-3">
-            暂无模型 —— 可先去模型管理加自定义模型
-          </div>
-          <div v-else class="flex flex-wrap gap-1.5 max-h-44 overflow-y-auto rounded-lg ring-1 ring-slate-200 bg-slate-50/60 p-2">
+          <div v-else-if="limitModels" class="flex flex-wrap gap-1.5 max-h-44 overflow-y-auto rounded-lg ring-1 ring-slate-200 bg-slate-50/60 p-2">
             <button v-for="m in allModels" :key="m.id" type="button" @click="toggle(m.id)"
                     class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs ring-1 transition-colors"
                     :class="selected.includes(m.id) ? 'bg-indigo-500/15 text-indigo-700 ring-indigo-300 font-medium' : 'bg-white text-slate-600 ring-slate-200 hover:ring-slate-300'">

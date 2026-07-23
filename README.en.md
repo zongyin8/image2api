@@ -141,7 +141,7 @@ It's more than an API proxy: it ships with **credit billing, CDK top-ups, referr
 | **Imagine.art** | imagine-1.5 · imagine-1.5pro | Image |
 | **Custom upstream** | OpenAI-compatible v1 image endpoints · Sora-compatible video endpoints | Image / Video |
 
-> Models are enabled and priced dynamically from the admin console. Custom upstreams use OpenAI/Sora-compatible APIs and route by model id.
+> Models are enabled and priced dynamically from the admin console. Custom upstreams use OpenAI/Sora-compatible APIs and route by model id; leave the upstream model filter empty to take over existing ids (for example `gpt-image-2`) without creating a duplicate custom model. Add a custom model only when the upstream exposes a new id.
 
 ## 🔌 OpenAI-Compatible API
 
