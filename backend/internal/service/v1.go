@@ -1338,6 +1338,38 @@ func (s *V1Service) hasActiveProviderToken(ctx context.Context, provider, kind s
 	return false, nil
 }
 
+// hasAvailableProviderToken is the capacity-aware counterpart used when a
+// native provider competes with a custom upstream. A native account has one
+// generation slot; custom accounts use their configured concurrency. Redis
+// Count fails open (returns zero), matching the generation gate's behavior.
+func (s *V1Service) hasAvailableProviderToken(ctx context.Context, provider, kind string) (bool, error) {
+	items, err := s.tokens.ListByPool(ctx, provider)
+	if err != nil {
+		return false, err
+	}
+	for _, item := range items {
+		if item.Status != "active" || item.Dead || strings.TrimSpace(item.Value) == "" {
+			continue
+		}
+		if provider == "adobe" {
+			if kind == "video" && item.VideoLimited {
+				continue
+			}
+			if kind == "image" && item.ImageLimited {
+				continue
+			}
+		}
+		limit := 1
+		if provider == "custom" {
+			limit = accountConcurrency(item)
+		}
+		if s.conc == nil || s.conc.Count(ctx, "conc:a:"+item.ID) < limit {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (s *V1Service) prepareImage(ctx context.Context, principal *APIPrincipal, in V1ImageRequest, charge bool, forced *model.ModelConfig) (*model.ModelConfig, string, string, float64, error) {
 	modelID := strings.TrimSpace(in.Model)
 	prompt := strings.TrimSpace(in.Prompt)
@@ -2187,7 +2219,7 @@ func (s *V1Service) effectiveImageProvider(ctx context.Context, modelItem *model
 	}
 	native := modelItem.Provider
 	if native != "" && native != "custom" {
-		if ok, err := s.hasActiveProviderToken(ctx, native, "image"); err == nil && ok {
+		if ok, err := s.hasAvailableProviderToken(ctx, native, "image"); err == nil && ok {
 			return native
 		}
 	}
