@@ -23,6 +23,8 @@ type NodeReport struct {
 	IPAddr        string  `json:"ip_addr"`
 	ProvisionURL  string  `json:"provision_url"`
 	PoolAvailable int     `json:"pool_available"`
+	PoolLimited   int     `json:"pool_limited"`
+	PoolDead      int     `json:"pool_dead"`
 	PoolTotal     int     `json:"pool_total"`
 	InFlight      int     `json:"in_flight"`
 	CPUPercent    float64 `json:"cpu_percent"`
@@ -127,10 +129,13 @@ func (r *ClusterReporter) collect(ctx context.Context) NodeReport {
 	if tokens, err := r.tokens.List(ctx); err == nil {
 		for _, t := range tokens {
 			if t.Dead {
+				report.PoolDead++
 				continue
 			}
 			report.PoolTotal++
-			if t.Status == "active" && !t.ImageLimited {
+			if t.ImageLimited {
+				report.PoolLimited++
+			} else if t.Status == "active" {
 				report.PoolAvailable++
 			}
 		}

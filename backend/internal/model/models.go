@@ -244,8 +244,11 @@ type ClusterNode struct {
 	BaseURL       string  `gorm:"size:255;index;not null;default:''"`
 	IPAddr        string  `gorm:"size:64;not null;default:''"`
 	ProvisionURL  string  `gorm:"size:255;not null;default:''"`
+	DisplayName   string  `gorm:"size:128;not null;default:''"`
 	Healthy       bool    `gorm:"not null;default:true"`
 	PoolAvailable int     `gorm:"not null;default:0"`
+	PoolLimited   int     `gorm:"not null;default:0"`
+	PoolDead      int     `gorm:"not null;default:0"`
 	PoolTotal     int     `gorm:"not null;default:0"`
 	InFlight      int     `gorm:"not null;default:0"`
 	CPUPercent    float64 `gorm:"not null;default:0"`

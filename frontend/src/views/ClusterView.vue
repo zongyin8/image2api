@@ -12,6 +12,19 @@ async function refresh() {
   loaded.value = true
 }
 
+async function renameNode(n) {
+  const cur = n.display_name === n.node_id ? '' : n.display_name
+  const name = window.prompt(`给节点「${n.node_id}」起个显示名(留空恢复默认):`, cur)
+  if (name === null) return
+  await api('/cluster-nodes/' + encodeURIComponent(n.node_id), jsonBody('PATCH', { display_name: name.trim() }))
+  refresh()
+}
+async function removeNode(n) {
+  if (!window.confirm(`确定移除节点「${n.display_name}」？(它若仍在上报会重新出现)`)) return
+  await api('/cluster-nodes/' + encodeURIComponent(n.node_id), { method: 'DELETE' })
+  refresh()
+}
+
 const online = computed(() => nodes.value.filter((n) => n.online))
 const offlineCount = computed(() => nodes.value.length - online.value.length)
 const totalAvailable = computed(() => nodes.value.reduce((s, n) => s + (n.pool_available || 0), 0))
@@ -233,7 +246,7 @@ onUnmounted(() => { clearInterval(listTimer); stopPoll() })
           暂无节点上报。无头端节点配置 <span class="font-mono">NODE_ID</span> /
           <span class="font-mono">CONTROL_PLANE_URL</span> 后会自动出现在这里。
         </div>
-        <div v-else class="space-y-0.5 min-w-[680px]">
+        <div v-else class="space-y-0.5 min-w-[820px]">
           <div v-for="n in nodes" :key="n.node_id"
                class="flex items-center gap-3 px-2 py-2.5 rounded-lg hover:bg-[color:var(--hover)] transition-colors">
             <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ring-1 tabular-nums shrink-0 w-16 justify-center"
@@ -242,17 +255,19 @@ onUnmounted(() => { clearInterval(listTimer); stopPoll() })
               {{ n.online ? '在线' : '离线' }}
             </span>
             <div class="flex-1 min-w-0">
-              <div class="text-sm font-medium truncate text-[color:var(--fg)]">
-                {{ n.node_id }}
+              <div class="text-sm font-medium truncate text-[color:var(--fg)]" :title="n.node_id">
+                {{ n.display_name || n.node_id }}
                 <span v-if="n.ip_addr" class="text-[color:var(--fg-3)] font-normal ml-1.5 tabular-nums">{{ n.ip_addr }}</span>
               </div>
               <div class="text-[11px] text-[color:var(--fg-3)] mt-0.5 truncate font-mono">{{ n.base_url || '—' }}</div>
             </div>
-            <div class="text-right shrink-0 w-16">
+            <div class="text-right shrink-0 w-24">
               <div class="text-sm tabular-nums" :class="n.pool_available > 0 ? 'text-emerald-500 dark:text-emerald-300' : 'text-rose-500 dark:text-rose-300'">
                 {{ n.pool_available }}<span class="text-[color:var(--fg-faint)]">/{{ n.pool_total }}</span>
               </div>
-              <div class="text-[10px] text-[color:var(--fg-3)]">可用号</div>
+              <div class="text-[10px] text-[color:var(--fg-3)]">
+                可用号<span v-if="n.pool_limited" class="text-amber-500 dark:text-amber-300"> 限{{ n.pool_limited }}</span><span v-if="n.pool_dead" class="text-rose-500 dark:text-rose-300"> 死{{ n.pool_dead }}</span>
+              </div>
             </div>
             <div class="text-right shrink-0 w-12">
               <div class="text-sm tabular-nums text-[color:var(--fg-2)]">{{ n.in_flight }}</div>
@@ -274,10 +289,11 @@ onUnmounted(() => { clearInterval(listTimer); stopPoll() })
               <div class="text-xs tabular-nums text-[color:var(--fg-3)]">{{ fmtSince(n.seconds_since_seen) }}</div>
               <div class="text-[10px] text-[color:var(--fg-3)]">心跳</div>
             </div>
-            <!-- 操作列：单个管理按钮 -->
-            <div class="shrink-0 pl-1 w-16 text-right">
+            <!-- 操作列 -->
+            <div class="shrink-0 pl-1 flex items-center gap-1 justify-end">
               <button v-if="n.has_provisioner" @click="openNode(n)" class="node-op-primary">管理</button>
-              <span v-else class="text-[10px] text-[color:var(--fg-faint)]">无引擎</span>
+              <button @click="renameNode(n)" class="node-op" title="改名">✎</button>
+              <button v-if="!n.online" @click="removeNode(n)" class="node-op" title="移除离线节点">✕</button>
             </div>
           </div>
         </div>

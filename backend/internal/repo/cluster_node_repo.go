@@ -28,7 +28,8 @@ func (r *ClusterNodeRepository) Upsert(ctx context.Context, node *model.ClusterN
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "node_id"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"base_url", "ip_addr", "provision_url", "healthy", "pool_available", "pool_total", "in_flight",
+			"base_url", "ip_addr", "provision_url", "healthy",
+			"pool_available", "pool_limited", "pool_dead", "pool_total", "in_flight",
 			"cpu_percent", "mem_used_mb", "mem_total_mb", "disk_used_gb", "disk_total_gb",
 			"version", "last_error", "last_seen", "updated_at",
 		}),
@@ -47,6 +48,21 @@ func (r *ClusterNodeRepository) Get(ctx context.Context, nodeID string) (*model.
 		return nil, err
 	}
 	return &item, nil
+}
+
+// Delete drops a node row (decommissioned/zombie). It reappears if the node
+// starts reporting again.
+func (r *ClusterNodeRepository) Delete(ctx context.Context, nodeID string) (int64, error) {
+	res := r.db.WithContext(ctx).Delete(&model.ClusterNode{}, "node_id = ?", nodeID)
+	return res.RowsAffected, res.Error
+}
+
+// SetDisplayName sets a friendly name (node_id stays the machine identity, and
+// isn't overwritten by heartbeat upserts).
+func (r *ClusterNodeRepository) SetDisplayName(ctx context.Context, nodeID, name string) error {
+	return r.db.WithContext(ctx).Model(&model.ClusterNode{}).
+		Where("node_id = ?", nodeID).
+		Update("display_name", name).Error
 }
 
 // List returns all known nodes, freshest heartbeat first.

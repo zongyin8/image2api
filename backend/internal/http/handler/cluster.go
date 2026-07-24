@@ -47,6 +47,8 @@ func (h *ClusterHandler) Report(c *gin.Context) {
 		ProvisionURL:  strings.TrimSpace(report.ProvisionURL),
 		Healthy:       true,
 		PoolAvailable: report.PoolAvailable,
+		PoolLimited:   report.PoolLimited,
+		PoolDead:      report.PoolDead,
 		PoolTotal:     report.PoolTotal,
 		InFlight:      report.InFlight,
 		CPUPercent:    report.CPUPercent,
@@ -75,14 +77,21 @@ func (h *ClusterHandler) Nodes(c *gin.Context) {
 	out := make([]gin.H, 0, len(items))
 	for _, n := range items {
 		online := n.Healthy && now.Sub(n.LastSeen) <= service.NodeStaleWindow
+		dn := n.DisplayName
+		if dn == "" {
+			dn = n.NodeID
+		}
 		out = append(out, gin.H{
 			"node_id":            n.NodeID,
+			"display_name":       dn,
 			"base_url":           n.BaseURL,
 			"ip_addr":            n.IPAddr,
 			"has_provisioner":    n.ProvisionURL != "",
 			"online":             online,
 			"healthy":            n.Healthy,
 			"pool_available":     n.PoolAvailable,
+			"pool_limited":       n.PoolLimited,
+			"pool_dead":          n.PoolDead,
 			"pool_total":         n.PoolTotal,
 			"in_flight":          n.InFlight,
 			"cpu_percent":        n.CPUPercent,
@@ -178,4 +187,34 @@ func (h *ClusterHandler) Proxy(c *gin.Context) {
 		ct = "application/json"
 	}
 	c.Data(resp.StatusCode, ct, raw)
+}
+
+// Remove — DELETE /admin/api/cluster-nodes/:id. Drops a node row (a
+// decommissioned/zombie node). It reappears if it starts reporting again.
+func (h *ClusterHandler) Remove(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "node id required"})
+		return
+	}
+	if _, err := h.nodes.Delete(c.Request.Context(), id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": "delete failed"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// Rename — PATCH /admin/api/cluster-nodes/:id {display_name}. Sets a friendly
+// display name; node_id stays the machine identity.
+func (h *ClusterHandler) Rename(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	var body struct {
+		DisplayName string `json:"display_name"`
+	}
+	_ = c.ShouldBindJSON(&body)
+	if err := h.nodes.SetDisplayName(c.Request.Context(), id, strings.TrimSpace(body.DisplayName)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": "rename failed"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
