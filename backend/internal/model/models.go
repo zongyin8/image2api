@@ -233,6 +233,29 @@ type SiteSetting struct {
 	UpdatedAt time.Time
 }
 
+// ClusterNode is a headless worker node's last self-reported status, keyed by
+// NodeID. BaseURL is the join key back to the custom account row that dispatches
+// to it (token_accounts.meta.base_url == ClusterNode.BaseURL). The control plane
+// only stores rows; a node pushes its own status periodically (see
+// ClusterReporter). Rows whose LastSeen is stale are treated as offline by the
+// dispatcher — see V1Service.customActive.
+type ClusterNode struct {
+	NodeID        string  `gorm:"primaryKey;size:128"`
+	BaseURL       string  `gorm:"size:255;index;not null;default:''"`
+	Healthy       bool    `gorm:"not null;default:true"`
+	PoolAvailable int     `gorm:"not null;default:0"`
+	PoolTotal     int     `gorm:"not null;default:0"`
+	InFlight      int     `gorm:"not null;default:0"`
+	CPUPercent    float64 `gorm:"not null;default:0"`
+	MemUsedMB     int     `gorm:"not null;default:0"`
+	MemTotalMB    int     `gorm:"not null;default:0"`
+	Version       string  `gorm:"size:64;not null;default:''"`
+	LastError     string  `gorm:"size:255;not null;default:''"`
+	LastSeen      time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
 func AutoMigrateModels() []any {
 	return []any{
 		&User{},
@@ -250,6 +273,7 @@ func AutoMigrateModels() []any {
 		&ConcurrencyGroup{},
 		&Order{},
 		&CreditLog{},
+		&ClusterNode{},
 	}
 }
 

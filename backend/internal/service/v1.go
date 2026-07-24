@@ -116,6 +116,12 @@ type V1Service struct {
 	// skipped for a short window so the load-aware dispatcher stops hammering a
 	// flapping/overloaded worker — mirrors the cluster router's TEMP_DOWN.
 	customDown sync.Map
+
+	// clusterNodes holds headless worker-node self-reports (keyed by base_url via
+	// the repo). The dispatcher uses them to skip a node reporting zero available
+	// accounts or a stale heartbeat. nil (control plane without the repo, or no
+	// reports) disables the filter entirely. Wired via SetClusterNodes.
+	clusterNodes *repo.ClusterNodeRepository
 }
 
 // acctAcquire takes one per-account upstream slot (capped at max; 0/1 = single),
@@ -270,6 +276,11 @@ func (s *V1Service) SetRefresh(r *RefreshProfileService) { s.refresh = r }
 
 // SetBannedWords wires the prompt blocklist in after construction.
 func (s *V1Service) SetBannedWords(r *repo.BannedWordRepository) { s.banned = r }
+
+// SetClusterNodes wires the worker-node status repo in after construction, so
+// dispatch can skip nodes reporting no capacity. Leave unset on a control plane
+// that shouldn't filter (dispatch then behaves exactly as before).
+func (s *V1Service) SetClusterNodes(r *repo.ClusterNodeRepository) { s.clusterNodes = r }
 
 // checkBannedPrompt rejects the request when the prompt contains any banned
 // word (case-insensitive substring). A hit bumps the word's counter and the
@@ -2178,9 +2189,16 @@ func (s *V1Service) customActive(ctx context.Context, modelID string) ([]model.T
 	// Best-effort per-node in-flight counts drive load-aware dispatch; a nil map
 	// (query error) reads as 0 load everywhere and degrades gracefully to weight order.
 	inflight, _ := s.events.InFlightByAccount(ctx)
+	// Best-effort node heartbeats (base_url → status) let us skip a worker with no
+	// available accounts or a stale heartbeat. nil ⇒ no filtering (control plane
+	// without reports, or legacy upstreams that never report).
+	nodeStatus := s.nodeStatusByBaseURL(ctx)
 	var active, cooling []model.TokenAccount
 	for _, item := range items {
 		if !customAccountServes(item, modelID) {
+			continue
+		}
+		if !customNodeEligible(item, nodeStatus) {
 			continue
 		}
 		if s.isCustomDown(item.ID) {
@@ -2245,6 +2263,46 @@ func (s *V1Service) isCustomDown(accountID string) bool {
 	}
 	s.customDown.Delete(accountID)
 	return false
+}
+
+// nodeStatusByBaseURL fetches the latest worker heartbeats keyed by base_url.
+// Best effort: nil when there's no cluster-node repo or the query fails, which
+// leaves every custom node eligible (the filter is skipped entirely).
+func (s *V1Service) nodeStatusByBaseURL(ctx context.Context) map[string]model.ClusterNode {
+	if s.clusterNodes == nil {
+		return nil
+	}
+	m, err := s.clusterNodes.ByBaseURL(ctx)
+	if err != nil {
+		return nil
+	}
+	return m
+}
+
+// customNodeEligible reports whether a custom account may receive dispatch given
+// its node's last self-report. An account whose base_url has NO node row is always
+// eligible (legacy upstreams like 2s21 that don't report — benefit of the doubt).
+// One WITH a row is skipped when the node is unhealthy, reports zero available
+// accounts, or its heartbeat is stale (likely down).
+func customNodeEligible(item model.TokenAccount, nodeStatus map[string]model.ClusterNode) bool {
+	if len(nodeStatus) == 0 {
+		return true
+	}
+	base := strings.TrimSpace(stringValue(item.Meta["base_url"]))
+	if base == "" {
+		return true
+	}
+	node, ok := nodeStatus[base]
+	if !ok {
+		return true
+	}
+	if !node.Healthy || node.PoolAvailable <= 0 {
+		return false
+	}
+	if time.Since(node.LastSeen) > NodeStaleWindow {
+		return false
+	}
+	return true
 }
 
 // accountConcurrency is the per-account simultaneous-job cap. Custom accounts use

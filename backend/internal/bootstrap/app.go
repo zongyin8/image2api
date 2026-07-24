@@ -97,6 +97,7 @@ func NewApp(ctx context.Context) (*App, error) {
 	cdkRepo := repo.NewCDKRepository(db)
 	apiKeyRepo := repo.NewAPIKeyRepository(db)
 	tokenRepo := repo.NewTokenRepository(db)
+	clusterNodeRepo := repo.NewClusterNodeRepository(db)
 	refreshRepo := repo.NewRefreshProfileRepository(db)
 	cgroupRepo := repo.NewConcurrencyGroupRepository(db)
 	// Seed the "默认并发" group (cap 10) and bind any ungrouped users to it.
@@ -145,6 +146,10 @@ func NewApp(ctx context.Context) (*App, error) {
 	v1Svc.SetRefresh(refreshSvc)
 	bannedWordRepo := repo.NewBannedWordRepository(db)
 	v1Svc.SetBannedWords(bannedWordRepo)
+	// Dispatch skips worker nodes reporting no capacity / stale heartbeat. On the
+	// control plane this repo carries node reports; on a lone node it's empty and
+	// the filter is a no-op.
+	v1Svc.SetClusterNodes(clusterNodeRepo)
 	userGenSvc := service.NewUserGenerationService(v1Svc, eventRepo, userRepo, modelRepo)
 
 	captchaSvc := service.NewCaptchaService(rdb)
@@ -169,6 +174,7 @@ func NewApp(ctx context.Context) (*App, error) {
 		Payment:       handler.NewPaymentHandler(paymentSvc),
 		BannedWords:   handler.NewBannedWordsHandler(bannedWordRepo),
 		CreditLog:     handler.NewCreditLogHandler(creditLogSvc),
+		Cluster:       handler.NewClusterHandler(clusterNodeRepo),
 	})
 
 	// Background self-healing sweep (quota recovery, cookie refresh, stale-pending
@@ -176,6 +182,14 @@ func NewApp(ctx context.Context) (*App, error) {
 	maintenanceSvc := service.NewMaintenanceService(tokenRepo, tokenSvc, eventRepo, userRepo, refreshSvc, siteRepo, rustfsClient, v1Svc.Inflight(), showcaseRepo, orderRepo)
 	loopCtx, loopCancel := context.WithCancel(context.Background())
 	go maintenanceSvc.Run(loopCtx)
+
+	// On a headless worker node (NODE_ID + CONTROL_PLANE_URL set), push status to
+	// the control plane so it can show the node on the panel and skip it when it
+	// has no capacity. No-op on the control plane itself.
+	clusterReporter := service.NewClusterReporter(cfg, tokenRepo, eventRepo)
+	if clusterReporter.Enabled() {
+		go clusterReporter.Run(loopCtx)
+	}
 
 	return &App{
 		Config:            cfg,

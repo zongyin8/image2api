@@ -11,6 +11,7 @@ const mobileMenuOpen = ref(false)
 
 const tabs = [
   { label: '概览',    to: '/admin/overview', icon: 'overview' },
+  { label: '集群节点', to: '/admin/cluster',  icon: 'plug' },
   { label: '模型管理', to: '/admin/models',   icon: 'models' },
   { label: '账号管理', to: '/admin/accounts', icon: 'plug' },
   { label: '开通管理', to: '/admin/provision', icon: 'spark' },

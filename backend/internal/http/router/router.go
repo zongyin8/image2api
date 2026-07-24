@@ -31,6 +31,7 @@ type Handlers struct {
 	Payment       *handler.PaymentHandler
 	BannedWords   *handler.BannedWordsHandler
 	CreditLog     *handler.CreditLogHandler
+	Cluster       *handler.ClusterHandler
 }
 
 func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.Engine {
@@ -118,6 +119,8 @@ func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.
 		clusterAdmin.GET("/users", handlers.AdminRead.Users)
 		clusterAdmin.POST("/users/:user_id/credits", handlers.AdminWrite.AdjustUserCredits)
 		clusterAdmin.GET("/orders", handlers.Payment.AdminOrders)
+		// Worker nodes push their status here (machine-to-machine).
+		clusterAdmin.POST("/nodes/report", handlers.Cluster.Report)
 	}
 
 	authed := engine.Group("/admin/api")
@@ -161,6 +164,7 @@ func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.
 		authed.GET("/accounts/:pool/:id/quota", handlers.ProviderAdmin.AccountQuota)
 		authed.GET("/accounts/:pool/:id/email", handlers.ProviderAdmin.AccountEmail)
 		authed.GET("/providers", handlers.AdminRead.Providers)
+		authed.GET("/cluster-nodes", handlers.Cluster.Nodes)
 		authed.GET("/images", handlers.AdminRead.Images)
 		authed.DELETE("/images", handlers.AdminRead.DeleteImage)
 		authed.GET("/banned-words", handlers.BannedWords.List)

@@ -29,6 +29,14 @@ type Config struct {
 	RustFSSecretKey    string
 	ImageURLSigningKey string
 	ImageURLTTL        time.Duration
+	// Cluster node self-identity. When NodeID and ControlPlaneURL are both set,
+	// this backend is a headless worker node and pushes its status to the control
+	// plane (see ClusterReporter). The control plane itself leaves these empty.
+	// NodeBaseURL must equal the custom account's meta.base_url on the control
+	// plane so dispatch can join node status to the dispatch row.
+	NodeID          string
+	NodeBaseURL     string
+	ControlPlaneURL string
 }
 
 func Load() (*Config, error) {
@@ -66,6 +74,9 @@ func Load() (*Config, error) {
 		RustFSSecretKey:    envString("RUSTFS_SECRET_KEY", ""),
 		ImageURLSigningKey: envString("IMAGE_URL_SIGNING_KEY", ""),
 		ImageURLTTL:        time.Duration(envInt("IMAGE_URL_TTL_MINUTES", 60)) * time.Minute,
+		NodeID:             envString("NODE_ID", ""),
+		NodeBaseURL:        envString("NODE_BASE_URL", ""),
+		ControlPlaneURL:    envString("CONTROL_PLANE_URL", ""),
 	}
 	if cfg.ImageURLSigningKey == "" {
 		cfg.ImageURLSigningKey = cfg.RustFSSecretKey

@@ -19,6 +19,7 @@ import InviteView from './views/InviteView.vue'
 import DocsView from './views/DocsView.vue'
 import AboutView from './views/AboutView.vue'
 import OverviewView from './views/OverviewView.vue'
+import ClusterView from './views/ClusterView.vue'
 import ModelsView from './views/ModelsView.vue'
 import AccountsView from './views/AccountsView.vue'
 import UsersView from './views/UsersView.vue'
@@ -55,6 +56,7 @@ const routes = [
     children: [
       { path: '', redirect: '/admin/overview' },
       { path: 'overview', component: OverviewView, meta: { label: '概览' } },
+      { path: 'cluster', component: ClusterView, meta: { label: '集群节点' } },
       { path: 'models',   component: ModelsView,   meta: { label: '模型管理' } },
       { path: 'accounts', component: AccountsView, meta: { label: '账号管理' } },
       { path: 'provision', component: ProvisionView, meta: { label: '开通管理' } },
