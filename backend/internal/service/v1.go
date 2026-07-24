@@ -797,9 +797,13 @@ func (s *V1Service) prepareImageExecutionOnce(ctx context.Context, principal *AP
 			imageBytes = processed
 		}
 	}
-	// Node-only ESPCN super-res: upscale the 1K base to 2K/4K. Fail-safe — any
-	// error keeps the original bytes so a paid generation is never lost.
-	imageBytes = s.maybeUpscale(genCtx, imageBytes, resolution)
+	// Node-only ESPCN super-res: upscale the 1K chatgpt base to 2K/4K. Gated by
+	// signedStore (= upscale configured AND 2K/4K AND provider is chatgpt) so a
+	// provider that already outputs 2K/4K natively (adobe/runway/…) is never
+	// re-upscaled. Fail-safe — any error keeps the original bytes.
+	if signedStore {
+		imageBytes = s.maybeUpscale(genCtx, imageBytes, resolution)
+	}
 	if !noStore {
 		// Upload to RustFS. On failure the generation fails and credits are
 		// refunded — we never fall back to local disk.
