@@ -24,16 +24,16 @@ const overall = computed(() => {
 })
 
 function pill(tone) {
-  if (tone === 'healthy') return 'bg-emerald-500/10 text-emerald-300 ring-emerald-400/30'
-  if (tone === 'warning') return 'bg-amber-500/10 text-amber-300 ring-amber-400/30'
-  return 'bg-white/5 text-white/50 ring-white/10'
+  if (tone === 'healthy') return 'bg-emerald-500/10 text-emerald-500 dark:text-emerald-300 ring-emerald-400/30'
+  if (tone === 'warning') return 'bg-amber-500/10 text-amber-600 dark:text-amber-300 ring-amber-400/30'
+  return 'bg-[color:var(--hover)] text-[color:var(--fg-3)] ring-[color:var(--hairline)]'
 }
 function dot(tone) {
   if (tone === 'healthy') return 'bg-emerald-400'
   if (tone === 'warning') return 'bg-amber-400'
-  return 'bg-white/40'
+  return 'bg-[color:var(--fg-faint)]'
 }
-function nodePill(n) { return n.online ? pill('healthy') : 'bg-rose-500/10 text-rose-300 ring-rose-400/30' }
+function nodePill(n) { return n.online ? pill('healthy') : 'bg-rose-500/10 text-rose-500 dark:text-rose-300 ring-rose-400/30' }
 function nodeDot(n) { return n.online ? 'bg-emerald-400' : 'bg-rose-500' }
 
 function fmtSince(s) {
@@ -49,10 +49,10 @@ function fmtMem(n) {
 }
 function fmtDisk(n) { return n.disk_total_gb ? `${n.disk_used_gb}/${n.disk_total_gb}G` : '—' }
 
-// ===== 节点管理弹窗（注册设置 / 注册日志 / 号池） =====
-const modalNode = ref(null)     // 当前操作的节点；null=关闭
-const modalTab = ref('register') // register | log | accounts
-const reg = ref(null)            // /api/register 返回的 register 对象
+// ===== 节点管理弹窗（注册设置 / 注册日志 / 号池，三个 tab 合一） =====
+const modalNode = ref(null)
+const modalTab = ref('register')
+const reg = ref(null)
 const mailStats = ref(null)
 const err = ref('')
 const busy = ref(false)
@@ -88,9 +88,9 @@ function loadTab() {
 }
 function switchTab(t) { modalTab.value = t; loadTab() }
 
-function openNode(node, tab) {
+function openNode(node) {
   modalNode.value = node
-  modalTab.value = tab
+  modalTab.value = 'register'
   reg.value = null; mailStats.value = null; err.value = ''
   loadTab()
   stopPoll()
@@ -130,10 +130,10 @@ async function regAction(action) {
 
 const st = computed(() => reg.value?.stats || {})
 function logColor(level) {
-  if (level === 'red') return 'text-rose-300'
-  if (level === 'green') return 'text-emerald-300'
-  if (level === 'yellow') return 'text-amber-300'
-  return 'text-white/70'
+  if (level === 'red') return 'text-rose-500 dark:text-rose-300'
+  if (level === 'green') return 'text-emerald-500 dark:text-emerald-300'
+  if (level === 'yellow') return 'text-amber-600 dark:text-amber-300'
+  return 'text-[color:var(--fg-2)]'
 }
 
 onMounted(() => { refresh(); listTimer = setInterval(refresh, 10000) })
@@ -141,7 +141,7 @@ onUnmounted(() => { clearInterval(listTimer); stopPoll() })
 </script>
 
 <template>
-  <section class="space-y-4">
+  <section class="space-y-4 text-[color:var(--fg-2)]">
     <!-- Toolbar -->
     <div class="flex items-center justify-between gap-3">
       <span class="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium ring-1 tabular-nums"
@@ -155,87 +155,83 @@ onUnmounted(() => { clearInterval(listTimer); stopPoll() })
     <!-- KPI strip -->
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <div class="card p-4">
-        <div class="text-xs text-white/55">工作节点</div>
-        <div class="text-2xl font-semibold tabular-nums mt-2">{{ nodes.length }}</div>
-        <div class="text-[11px] text-white/45 mt-1">{{ online.length }} 在线</div>
+        <div class="text-xs text-[color:var(--fg-3)]">工作节点</div>
+        <div class="text-2xl font-semibold tabular-nums mt-2 text-[color:var(--fg)]">{{ nodes.length }}</div>
+        <div class="text-[11px] text-[color:var(--fg-3)] mt-1">{{ online.length }} 在线</div>
       </div>
       <div class="card p-4">
-        <div class="text-xs text-white/55">总可用号</div>
-        <div class="text-2xl font-semibold tabular-nums mt-2 text-emerald-300">{{ totalAvailable }}</div>
-        <div class="text-[11px] text-white/45 mt-1">各节点可出图账号合计</div>
+        <div class="text-xs text-[color:var(--fg-3)]">总可用号</div>
+        <div class="text-2xl font-semibold tabular-nums mt-2 text-emerald-500 dark:text-emerald-300">{{ totalAvailable }}</div>
+        <div class="text-[11px] text-[color:var(--fg-3)] mt-1">各节点可出图账号合计</div>
       </div>
       <div class="card p-4">
-        <div class="text-xs text-white/55">在途任务</div>
-        <div class="text-2xl font-semibold tabular-nums mt-2">{{ totalInflight }}</div>
-        <div class="text-[11px] text-white/45 mt-1">各节点进行中合计</div>
+        <div class="text-xs text-[color:var(--fg-3)]">在途任务</div>
+        <div class="text-2xl font-semibold tabular-nums mt-2 text-[color:var(--fg)]">{{ totalInflight }}</div>
+        <div class="text-[11px] text-[color:var(--fg-3)] mt-1">各节点进行中合计</div>
       </div>
       <div class="card p-4">
-        <div class="text-xs text-white/55">离线节点</div>
-        <div class="text-2xl font-semibold tabular-nums mt-2" :class="offlineCount ? 'text-rose-300' : ''">{{ offlineCount }}</div>
-        <div class="text-[11px] text-white/45 mt-1">心跳超时 / 不健康</div>
+        <div class="text-xs text-[color:var(--fg-3)]">离线节点</div>
+        <div class="text-2xl font-semibold tabular-nums mt-2" :class="offlineCount ? 'text-rose-500 dark:text-rose-300' : 'text-[color:var(--fg)]'">{{ offlineCount }}</div>
+        <div class="text-[11px] text-[color:var(--fg-3)] mt-1">心跳超时 / 不健康</div>
       </div>
     </div>
 
     <!-- Node table -->
     <div class="card">
-      <div class="px-5 py-3 border-b border-white/[0.06] flex items-center justify-between">
-        <h2 class="text-sm font-semibold">节点状态</h2>
-        <span class="text-[11px] text-white/45">每 10 秒刷新 · 心跳超时即视为离线并停止派单</span>
+      <div class="px-5 py-3 border-b border-[color:var(--hairline)] flex items-center justify-between">
+        <h2 class="text-sm font-semibold text-[color:var(--fg)]">节点状态</h2>
+        <span class="text-[11px] text-[color:var(--fg-3)]">每 10 秒刷新 · 心跳超时即视为离线并停止派单</span>
       </div>
       <div class="p-3 overflow-x-auto">
-        <div v-if="loaded && !nodes.length" class="text-center text-xs text-white/40 py-8 leading-relaxed">
-          暂无节点上报。无头端节点配置 <span class="font-mono text-white/60">NODE_ID</span> /
-          <span class="font-mono text-white/60">CONTROL_PLANE_URL</span> 后会自动出现在这里。
+        <div v-if="loaded && !nodes.length" class="text-center text-xs text-[color:var(--fg-3)] py-8 leading-relaxed">
+          暂无节点上报。无头端节点配置 <span class="font-mono">NODE_ID</span> /
+          <span class="font-mono">CONTROL_PLANE_URL</span> 后会自动出现在这里。
         </div>
-        <div v-else class="space-y-0.5 min-w-[720px]">
+        <div v-else class="space-y-0.5 min-w-[680px]">
           <div v-for="n in nodes" :key="n.node_id"
-               class="flex items-center gap-3 px-2 py-2.5 rounded-lg hover:bg-white/[0.04] transition-colors">
+               class="flex items-center gap-3 px-2 py-2.5 rounded-lg hover:bg-[color:var(--hover)] transition-colors">
             <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ring-1 tabular-nums shrink-0 w-16 justify-center"
                   :class="nodePill(n)">
               <span class="w-1.5 h-1.5 rounded-full" :class="nodeDot(n)"></span>
               {{ n.online ? '在线' : '离线' }}
             </span>
             <div class="flex-1 min-w-0">
-              <div class="text-sm font-medium truncate">
+              <div class="text-sm font-medium truncate text-[color:var(--fg)]">
                 {{ n.node_id }}
-                <span v-if="n.ip_addr" class="text-white/40 font-normal ml-1.5 tabular-nums">{{ n.ip_addr }}</span>
+                <span v-if="n.ip_addr" class="text-[color:var(--fg-3)] font-normal ml-1.5 tabular-nums">{{ n.ip_addr }}</span>
               </div>
-              <div class="text-[11px] text-white/45 mt-0.5 truncate font-mono">{{ n.base_url || '—' }}</div>
+              <div class="text-[11px] text-[color:var(--fg-3)] mt-0.5 truncate font-mono">{{ n.base_url || '—' }}</div>
             </div>
             <div class="text-right shrink-0 w-16">
-              <div class="text-sm tabular-nums" :class="n.pool_available > 0 ? 'text-emerald-300' : 'text-rose-300'">
-                {{ n.pool_available }}<span class="text-white/30">/{{ n.pool_total }}</span>
+              <div class="text-sm tabular-nums" :class="n.pool_available > 0 ? 'text-emerald-500 dark:text-emerald-300' : 'text-rose-500 dark:text-rose-300'">
+                {{ n.pool_available }}<span class="text-[color:var(--fg-faint)]">/{{ n.pool_total }}</span>
               </div>
-              <div class="text-[10px] text-white/40">可用号</div>
+              <div class="text-[10px] text-[color:var(--fg-3)]">可用号</div>
             </div>
             <div class="text-right shrink-0 w-12">
-              <div class="text-sm tabular-nums">{{ n.in_flight }}</div>
-              <div class="text-[10px] text-white/40">在途</div>
+              <div class="text-sm tabular-nums text-[color:var(--fg-2)]">{{ n.in_flight }}</div>
+              <div class="text-[10px] text-[color:var(--fg-3)]">在途</div>
             </div>
             <div class="text-right shrink-0 w-12">
-              <div class="text-xs tabular-nums text-white/70">{{ fmtCpu(n) }}</div>
-              <div class="text-[10px] text-white/40">CPU</div>
+              <div class="text-xs tabular-nums text-[color:var(--fg-2)]">{{ fmtCpu(n) }}</div>
+              <div class="text-[10px] text-[color:var(--fg-3)]">CPU</div>
             </div>
             <div class="text-right shrink-0 w-20">
-              <div class="text-xs tabular-nums text-white/70">{{ fmtMem(n) }}</div>
-              <div class="text-[10px] text-white/40">内存</div>
+              <div class="text-xs tabular-nums text-[color:var(--fg-2)]">{{ fmtMem(n) }}</div>
+              <div class="text-[10px] text-[color:var(--fg-3)]">内存</div>
             </div>
             <div class="text-right shrink-0 w-16">
-              <div class="text-xs tabular-nums text-white/70">{{ fmtDisk(n) }}</div>
-              <div class="text-[10px] text-white/40">磁盘</div>
+              <div class="text-xs tabular-nums text-[color:var(--fg-2)]">{{ fmtDisk(n) }}</div>
+              <div class="text-[10px] text-[color:var(--fg-3)]">磁盘</div>
             </div>
             <div class="text-right shrink-0 w-14">
-              <div class="text-xs tabular-nums text-white/60">{{ fmtSince(n.seconds_since_seen) }}</div>
-              <div class="text-[10px] text-white/40">心跳</div>
+              <div class="text-xs tabular-nums text-[color:var(--fg-3)]">{{ fmtSince(n.seconds_since_seen) }}</div>
+              <div class="text-[10px] text-[color:var(--fg-3)]">心跳</div>
             </div>
-            <!-- 操作列 -->
-            <div class="shrink-0 flex items-center gap-1 pl-1">
-              <template v-if="n.has_provisioner">
-                <button @click="openNode(n, 'register')" class="node-op">注册设置</button>
-                <button @click="openNode(n, 'log')" class="node-op">注册日志</button>
-                <button @click="openNode(n, 'accounts')" class="node-op">号池</button>
-              </template>
-              <span v-else class="text-[10px] text-white/30 px-2">无注册引擎</span>
+            <!-- 操作列：单个管理按钮 -->
+            <div class="shrink-0 pl-1 w-16 text-right">
+              <button v-if="n.has_provisioner" @click="openNode(n)" class="node-op-primary">管理</button>
+              <span v-else class="text-[10px] text-[color:var(--fg-faint)]">无引擎</span>
             </div>
           </div>
         </div>
@@ -244,38 +240,38 @@ onUnmounted(() => { clearInterval(listTimer); stopPoll() })
 
     <!-- ===== 节点管理弹窗 ===== -->
     <div v-if="modalNode" class="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="closeModal"></div>
-      <div class="relative card w-full max-w-3xl max-h-[85vh] flex flex-col">
-        <div class="px-5 py-3 border-b border-white/[0.06] flex items-center justify-between">
+      <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" @click="closeModal"></div>
+      <div class="relative card w-full max-w-3xl max-h-[85vh] flex flex-col text-[color:var(--fg-2)]">
+        <div class="px-5 py-3 border-b border-[color:var(--hairline)] flex items-center justify-between">
           <div>
-            <h2 class="text-sm font-semibold">{{ modalNode.node_id }}<span v-if="modalNode.ip_addr" class="text-white/40 font-normal ml-2 tabular-nums">{{ modalNode.ip_addr }}</span></h2>
-            <div class="text-[11px] text-white/40 mt-0.5 font-mono">{{ modalNode.base_url }}</div>
+            <h2 class="text-sm font-semibold text-[color:var(--fg)]">{{ modalNode.node_id }}<span v-if="modalNode.ip_addr" class="text-[color:var(--fg-3)] font-normal ml-2 tabular-nums">{{ modalNode.ip_addr }}</span></h2>
+            <div class="text-[11px] text-[color:var(--fg-3)] mt-0.5 font-mono">{{ modalNode.base_url }}</div>
           </div>
-          <button @click="closeModal" class="text-white/50 hover:text-white text-lg leading-none px-2">✕</button>
+          <button @click="closeModal" class="text-[color:var(--fg-3)] hover:text-[color:var(--fg)] text-lg leading-none px-2">✕</button>
         </div>
         <!-- tabs -->
         <div class="px-5 pt-3 flex gap-1">
           <button v-for="t in tabs" :key="t.key" @click="switchTab(t.key)"
                   class="px-3 py-1.5 rounded-lg text-xs transition-colors"
-                  :class="modalTab === t.key ? 'bg-white/10 text-white font-medium' : 'text-white/50 hover:text-white/80'">
+                  :class="modalTab === t.key ? 'bg-[color:var(--hover)] text-[color:var(--fg)] font-medium' : 'text-[color:var(--fg-3)] hover:text-[color:var(--fg)]'">
             {{ t.label }}
           </button>
         </div>
 
         <div class="p-5 overflow-y-auto flex-1">
-          <div v-if="err" class="mb-3 text-xs text-rose-300 bg-rose-500/10 rounded-lg px-3 py-2 break-all">{{ err }}</div>
+          <div v-if="err" class="mb-3 text-xs text-rose-500 dark:text-rose-300 bg-rose-500/10 rounded-lg px-3 py-2 break-all">{{ err }}</div>
 
           <!-- 注册设置 -->
           <div v-if="modalTab === 'register'">
-            <div v-if="!reg" class="text-center text-xs text-white/40 py-8">加载中…</div>
+            <div v-if="!reg" class="text-center text-xs text-[color:var(--fg-3)] py-8">加载中…</div>
             <div v-else class="space-y-4">
-              <div class="flex items-center gap-3">
+              <div class="flex items-center gap-3 flex-wrap">
                 <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ring-1"
-                      :class="reg.enabled ? 'bg-emerald-500/10 text-emerald-300 ring-emerald-400/30' : 'bg-white/5 text-white/50 ring-white/10'">
-                  <span class="w-1.5 h-1.5 rounded-full" :class="reg.enabled ? 'bg-emerald-400' : 'bg-white/40'"></span>
+                      :class="reg.enabled ? 'bg-emerald-500/10 text-emerald-500 dark:text-emerald-300 ring-emerald-400/30' : 'bg-[color:var(--hover)] text-[color:var(--fg-3)] ring-[color:var(--hairline)]'">
+                  <span class="w-1.5 h-1.5 rounded-full" :class="reg.enabled ? 'bg-emerald-400' : 'bg-[color:var(--fg-faint)]'"></span>
                   {{ reg.enabled ? '注册运行中' : '已停止' }}
                 </span>
-                <span class="text-[11px] text-white/45 tabular-nums">可用号 {{ st.current_available ?? '—' }} · 进行 {{ st.running ?? 0 }}</span>
+                <span class="text-[11px] text-[color:var(--fg-3)] tabular-nums">可用号 {{ st.current_available ?? '—' }} · 进行 {{ st.running ?? 0 }}</span>
                 <div class="ml-auto flex gap-2">
                   <button v-if="!reg.enabled" @click="regAction('start')" :disabled="busy" class="node-op-primary">启动</button>
                   <button v-else @click="regAction('stop')" :disabled="busy" class="node-op">停止</button>
@@ -306,10 +302,10 @@ onUnmounted(() => { clearInterval(listTimer); stopPoll() })
 
           <!-- 注册日志 -->
           <div v-else-if="modalTab === 'log'">
-            <div class="flex items-center gap-3 mb-3 text-[11px] text-white/50 tabular-nums flex-wrap">
-              <span class="text-emerald-300">成功 {{ st.success ?? 0 }}</span>
-              <span class="text-rose-300">失败 {{ st.fail ?? 0 }}</span>
-              <span class="text-amber-300">进行 {{ st.running ?? 0 }}</span>
+            <div class="flex items-center gap-3 mb-3 text-[11px] text-[color:var(--fg-3)] tabular-nums flex-wrap">
+              <span class="text-emerald-500 dark:text-emerald-300">成功 {{ st.success ?? 0 }}</span>
+              <span class="text-rose-500 dark:text-rose-300">失败 {{ st.fail ?? 0 }}</span>
+              <span class="text-amber-600 dark:text-amber-300">进行 {{ st.running ?? 0 }}</span>
               <span>可用号 {{ st.current_available ?? '—' }}</span>
               <span>成功率 {{ st.success_rate ?? '—' }}%</span>
               <div class="ml-auto flex gap-2">
@@ -317,10 +313,10 @@ onUnmounted(() => { clearInterval(listTimer); stopPoll() })
                 <button v-else @click="regAction('stop')" :disabled="busy" class="node-op">收手</button>
               </div>
             </div>
-            <div class="rounded-lg bg-black/50 ring-1 ring-white/[0.06] p-3 h-80 overflow-y-auto font-mono text-[11px] leading-relaxed">
-              <div v-if="!reg?.logs?.length" class="text-white/30">暂无日志</div>
+            <div class="rounded-lg bg-slate-900 ring-1 ring-black/20 p-3 h-80 overflow-y-auto font-mono text-[11px] leading-relaxed">
+              <div v-if="!reg?.logs?.length" class="text-white/40">暂无日志</div>
               <div v-for="(l, i) in (reg?.logs || []).slice(-300)" :key="i" :class="logColor(l.level)">
-                <span class="text-white/30">{{ (l.time || '').slice(11, 19) }}</span> {{ l.text }}
+                <span class="text-white/40">{{ (l.time || '').slice(11, 19) }}</span> {{ l.text }}
               </div>
             </div>
           </div>
@@ -328,16 +324,16 @@ onUnmounted(() => { clearInterval(listTimer); stopPoll() })
           <!-- 号池 -->
           <div v-else-if="modalTab === 'accounts'">
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div class="card p-3"><div class="text-[11px] text-white/50">可用号</div><div class="text-xl font-semibold tabular-nums text-emerald-300 mt-1">{{ st.current_available ?? '—' }}</div></div>
-              <div class="card p-3"><div class="text-[11px] text-white/50">剩余额度</div><div class="text-xl font-semibold tabular-nums mt-1">{{ st.current_quota ?? '—' }}</div></div>
-              <div class="card p-3"><div class="text-[11px] text-white/50">累计成功</div><div class="text-xl font-semibold tabular-nums text-emerald-300 mt-1">{{ st.success ?? 0 }}</div></div>
-              <div class="card p-3"><div class="text-[11px] text-white/50">累计失败</div><div class="text-xl font-semibold tabular-nums text-rose-300 mt-1">{{ st.fail ?? 0 }}</div></div>
+              <div class="card p-3"><div class="text-[11px] text-[color:var(--fg-3)]">可用号</div><div class="text-xl font-semibold tabular-nums text-emerald-500 dark:text-emerald-300 mt-1">{{ st.current_available ?? '—' }}</div></div>
+              <div class="card p-3"><div class="text-[11px] text-[color:var(--fg-3)]">剩余额度</div><div class="text-xl font-semibold tabular-nums mt-1 text-[color:var(--fg)]">{{ st.current_quota ?? '—' }}</div></div>
+              <div class="card p-3"><div class="text-[11px] text-[color:var(--fg-3)]">累计成功</div><div class="text-xl font-semibold tabular-nums text-emerald-500 dark:text-emerald-300 mt-1">{{ st.success ?? 0 }}</div></div>
+              <div class="card p-3"><div class="text-[11px] text-[color:var(--fg-3)]">累计失败</div><div class="text-xl font-semibold tabular-nums text-rose-500 dark:text-rose-300 mt-1">{{ st.fail ?? 0 }}</div></div>
             </div>
             <div v-if="mailStats" class="card p-3 mt-3">
-              <div class="text-[11px] text-white/50 mb-1">邮箱号池(Hotmail/outlook)</div>
-              <div class="text-sm tabular-nums">可用 {{ mailStats.pool_available ?? 0 }} / 总 {{ mailStats.pool_total ?? 0 }} · 已用 {{ mailStats.pool_used ?? 0 }}</div>
+              <div class="text-[11px] text-[color:var(--fg-3)] mb-1">邮箱号池(Hotmail/outlook)</div>
+              <div class="text-sm tabular-nums text-[color:var(--fg)]">可用 {{ mailStats.pool_available ?? 0 }} / 总 {{ mailStats.pool_total ?? 0 }} · 已用 {{ mailStats.pool_used ?? 0 }}</div>
             </div>
-            <p class="text-[11px] text-white/40 mt-3 leading-relaxed">
+            <p class="text-[11px] text-[color:var(--fg-3)] mt-3 leading-relaxed">
               该节点用低水位模式自动维持可用号(号被风控封了会自动补)。详细账号列表后续接入。
             </p>
           </div>
@@ -349,35 +345,35 @@ onUnmounted(() => { clearInterval(listTimer); stopPoll() })
 
 <style scoped>
 .node-op {
-  padding: 0.3rem 0.6rem;
+  padding: 0.3rem 0.7rem;
   border-radius: 0.5rem;
   font-size: 11px;
-  color: var(--fg-2, rgba(255, 255, 255, 0.7));
-  background: rgba(255, 255, 255, 0.06);
+  color: var(--fg-2);
+  background: var(--hover);
   white-space: nowrap;
   transition: background 0.15s ease, color 0.15s ease;
 }
-.node-op:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+.node-op:hover { color: var(--fg); filter: brightness(0.97); }
 .node-op:disabled { opacity: 0.5; cursor: not-allowed; }
 .node-op-primary {
-  padding: 0.3rem 0.7rem;
+  padding: 0.3rem 0.75rem;
   border-radius: 0.5rem;
   font-size: 11px;
   font-weight: 500;
   color: #fff;
-  background: linear-gradient(135deg, #a78bfa, #f0abfc);
+  background: linear-gradient(135deg, #8b5cf6, #d946ef);
   white-space: nowrap;
 }
 .node-op-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.fld-l { display: block; font-size: 11px; color: rgba(255, 255, 255, 0.5); margin-bottom: 0.25rem; }
+.fld-l { display: block; font-size: 11px; color: var(--fg-3); margin-bottom: 0.25rem; }
 .fld {
   width: 100%;
   padding: 0.4rem 0.6rem;
   border-radius: 0.5rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: var(--fg, #fff);
+  background: var(--surface-2, rgba(127, 127, 127, 0.08));
+  border: 1px solid var(--hairline);
+  color: var(--fg);
   font-size: 13px;
 }
-.fld:focus { outline: none; border-color: rgba(167, 139, 250, 0.5); }
+.fld:focus { outline: none; border-color: #a78bfa; }
 </style>
