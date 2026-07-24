@@ -92,7 +92,9 @@ function openNode(node) {
   modalNode.value = node
   modalTab.value = 'register'
   reg.value = null; mailStats.value = null; err.value = ''
+  importText.value = ''; importResult.value = ''
   loadTab()
+  loadMailPool()
   stopPoll()
   pollTimer = setInterval(() => {
     if (modalNode.value && (modalTab.value === 'register' || modalTab.value === 'log')) loadReg()
@@ -133,11 +135,17 @@ const st = computed(() => reg.value?.stats || {})
 // 邮箱配置：从 mail.providers 里拎出 cloudflare / outlook 两个 provider 做可视化编辑
 const mailProviders = computed(() => reg.value?.mail?.providers || [])
 const cfMail = computed(() => mailProviders.value.find((p) => p.type === 'cloudflare_temp_email'))
+const tmMail = computed(() => mailProviders.value.find((p) => p.type === 'tempmail_lol'))
 const olMail = computed(() => mailProviders.value.find((p) => p.type === 'outlook_oauth'))
 const mailMode = computed({
-  get: () => (olMail.value?.enable ? 'outlook' : 'cloudflare'),
+  get: () => {
+    if (olMail.value?.enable) return 'outlook'
+    if (tmMail.value?.enable) return 'tempmail'
+    return 'cloudflare'
+  },
   set: (v) => {
     if (cfMail.value) cfMail.value.enable = v === 'cloudflare'
+    if (tmMail.value) tmMail.value.enable = v === 'tempmail'
     if (olMail.value) olMail.value.enable = v === 'outlook'
   },
 })
@@ -145,11 +153,33 @@ const cfDomains = computed({
   get: () => (cfMail.value?.domain || []).join('\n'),
   set: (v) => { if (cfMail.value) cfMail.value.domain = v.split('\n').map((s) => s.trim()).filter(Boolean) },
 })
+const tmDomains = computed({
+  get: () => (tmMail.value?.domain || []).join('\n'),
+  set: (v) => { if (tmMail.value) tmMail.value.domain = v.split('\n').map((s) => s.trim()).filter(Boolean) },
+})
+// Hotmail/Outlook 号池导入
+const importText = ref('')
+const importBusy = ref(false)
+const importResult = ref('')
+async function doImport() {
+  importBusy.value = true
+  importResult.value = ''
+  try {
+    const d = await nodeProxy('POST', '/api/register/mail-pool/import', {
+      text: importText.value, email_type: 'outlook', gen_alias: false, alias_count: 0,
+    })
+    importResult.value = `导入成功 ${d.added || 0}，更新 ${d.updated || 0}，失败 ${d.failed || 0}`
+    importText.value = ''
+    loadMailPool()
+  } catch (e) { importResult.value = String(e.message || e) }
+  importBusy.value = false
+}
+// 日志区背景固定暗底 → 文字始终用亮色，不跟随主题
 function logColor(level) {
-  if (level === 'red') return 'text-rose-500 dark:text-rose-300'
-  if (level === 'green') return 'text-emerald-500 dark:text-emerald-300'
-  if (level === 'yellow') return 'text-amber-600 dark:text-amber-300'
-  return 'text-[color:var(--fg-2)]'
+  if (level === 'red') return 'text-rose-300'
+  if (level === 'green') return 'text-emerald-300'
+  if (level === 'yellow') return 'text-amber-300'
+  return 'text-slate-300'
 }
 
 onMounted(() => { refresh(); listTimer = setInterval(refresh, 10000) })
@@ -318,6 +348,7 @@ onUnmounted(() => { clearInterval(listTimer); stopPoll() })
                   <label class="block"><span class="fld-l">收码方式</span>
                     <select v-model="mailMode" class="fld">
                       <option value="cloudflare">Cloudflare 临时邮箱</option>
+                      <option value="tempmail">TempMail.lol</option>
                       <option value="outlook">Outlook/Hotmail 号池</option>
                     </select>
                   </label>
@@ -326,12 +357,36 @@ onUnmounted(() => { clearInterval(listTimer); stopPoll() })
                     <span class="text-xs text-[color:var(--fg-2)]">邮箱走代理</span>
                   </label>
                 </div>
-                <template v-if="mailMode === 'cloudflare' && cfMail">
-                  <label class="block mt-3"><span class="fld-l">API 地址</span><input v-model="cfMail.api_base" class="fld font-mono text-[11px]"></label>
-                  <label class="block mt-3"><span class="fld-l">管理密码</span><input v-model="cfMail.admin_password" class="fld"></label>
-                  <label class="block mt-3"><span class="fld-l">域名(一行一个)</span><textarea v-model="cfDomains" rows="4" class="fld font-mono text-[11px]"></textarea></label>
+                <!-- Cloudflare 临时邮箱 -->
+                <template v-if="mailMode === 'cloudflare'">
+                  <template v-if="cfMail">
+                    <label class="block mt-3"><span class="fld-l">API 地址</span><input v-model="cfMail.api_base" class="fld font-mono text-[11px]"></label>
+                    <label class="block mt-3"><span class="fld-l">管理密码</span><input v-model="cfMail.admin_password" class="fld"></label>
+                    <label class="block mt-3"><span class="fld-l">域名(一行一个)</span><textarea v-model="cfDomains" rows="4" class="fld font-mono text-[11px]"></textarea></label>
+                  </template>
+                  <p v-else class="text-[11px] text-[color:var(--fg-3)] mt-2">该节点未配置 Cloudflare 临时邮箱 provider。</p>
                 </template>
-                <p v-else class="text-[11px] text-[color:var(--fg-3)] mt-2">用导入的 Hotmail/Outlook 号池收码(在「号池」tab 管理)。</p>
+                <!-- TempMail.lol -->
+                <template v-else-if="mailMode === 'tempmail'">
+                  <template v-if="tmMail">
+                    <label class="block mt-3"><span class="fld-l">API Key</span><input v-model="tmMail.api_key" class="fld font-mono text-[11px]"></label>
+                    <label class="block mt-3"><span class="fld-l">域名(一行一个，留空用默认)</span><textarea v-model="tmDomains" rows="3" class="fld font-mono text-[11px]"></textarea></label>
+                  </template>
+                  <p v-else class="text-[11px] text-[color:var(--fg-3)] mt-2">该节点未配置 TempMail.lol provider。</p>
+                </template>
+                <!-- Outlook / Hotmail 号池 -->
+                <template v-else-if="mailMode === 'outlook'">
+                  <div class="text-[11px] mt-3 tabular-nums" :class="mailStats ? 'text-[color:var(--fg-2)]' : 'text-[color:var(--fg-3)]'">
+                    当前 Hotmail 号池：可用 {{ mailStats?.pool_available ?? '—' }} / 总 {{ mailStats?.pool_total ?? '—' }} · 已用 {{ mailStats?.pool_used ?? '—' }}
+                  </div>
+                  <label class="block mt-3"><span class="fld-l">导入邮箱号池(一行一个，格式 邮箱----密码----刷新令牌----clientid)</span>
+                    <textarea v-model="importText" rows="4" class="fld font-mono text-[11px]" placeholder="email----password----refresh_token----client_id"></textarea>
+                  </label>
+                  <div class="flex items-center gap-2 mt-2 flex-wrap">
+                    <button @click="doImport" :disabled="importBusy || !importText.trim()" class="node-op-primary">{{ importBusy ? '导入中…' : '导入号池' }}</button>
+                    <span v-if="importResult" class="text-[11px] text-[color:var(--fg-3)]">{{ importResult }}</span>
+                  </div>
+                </template>
               </div>
 
               <div class="flex justify-end">
