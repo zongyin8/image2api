@@ -26,6 +26,8 @@ type NodeReport struct {
 	CPUPercent    float64 `json:"cpu_percent"`
 	MemUsedMB     int     `json:"mem_used_mb"`
 	MemTotalMB    int     `json:"mem_total_mb"`
+	DiskUsedGB    int     `json:"disk_used_gb"`
+	DiskTotalGB   int     `json:"disk_total_gb"`
 	Version       string  `json:"version"`
 }
 
@@ -136,5 +138,51 @@ func (r *ClusterReporter) collect(ctx context.Context) NodeReport {
 		}
 		report.InFlight = int(sum)
 	}
+	r.fillHostMetrics(ctx, &report)
 	return report
+}
+
+// fillHostMetrics best-effort folds this node's cpu/mem/disk into the report by
+// pulling its local provisioner's /api/system/metrics (which already samples
+// /proc). No-op when ProvisionMetricsURL is unset or the pull fails — host
+// metrics are display-only, never block a report.
+func (r *ClusterReporter) fillHostMetrics(ctx context.Context, report *NodeReport) {
+	url := strings.TrimSpace(r.cfg.ProvisionMetricsURL)
+	if url == "" {
+		return
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return
+	}
+	if key := strings.TrimSpace(r.cfg.ProvisionAdminKey); key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return
+	}
+	var m struct {
+		System struct {
+			CPUPercent  float64 `json:"cpu_percent"`
+			MemoryTotal int64   `json:"memory_total"` // bytes
+			MemoryUsed  int64   `json:"memory_used"`  // bytes
+		} `json:"system"`
+		Disk struct {
+			Total int64 `json:"total"` // bytes
+			Used  int64 `json:"used"`  // bytes
+		} `json:"disk"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&m) != nil {
+		return
+	}
+	report.CPUPercent = m.System.CPUPercent
+	report.MemTotalMB = int(m.System.MemoryTotal / (1 << 20))
+	report.MemUsedMB = int(m.System.MemoryUsed / (1 << 20))
+	report.DiskTotalGB = int(m.Disk.Total / (1 << 30))
+	report.DiskUsedGB = int(m.Disk.Used / (1 << 30))
 }

@@ -28,8 +28,8 @@ func (r *ClusterNodeRepository) Upsert(ctx context.Context, node *model.ClusterN
 		Columns: []clause.Column{{Name: "node_id"}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"base_url", "healthy", "pool_available", "pool_total", "in_flight",
-			"cpu_percent", "mem_used_mb", "mem_total_mb", "version", "last_error",
-			"last_seen", "updated_at",
+			"cpu_percent", "mem_used_mb", "mem_total_mb", "disk_used_gb", "disk_total_gb",
+			"version", "last_error", "last_seen", "updated_at",
 		}),
 	}).Create(node).Error
 }

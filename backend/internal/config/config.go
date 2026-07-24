@@ -37,6 +37,11 @@ type Config struct {
 	NodeID          string
 	NodeBaseURL     string
 	ControlPlaneURL string
+	// ProvisionMetricsURL + ProvisionAdminKey let a node's reporter pull host
+	// metrics (cpu/mem/disk) from its local provisioner's /api/system/metrics and
+	// fold them into its status report. Empty ⇒ no host metrics reported.
+	ProvisionMetricsURL string
+	ProvisionAdminKey   string
 }
 
 func Load() (*Config, error) {
@@ -74,9 +79,11 @@ func Load() (*Config, error) {
 		RustFSSecretKey:    envString("RUSTFS_SECRET_KEY", ""),
 		ImageURLSigningKey: envString("IMAGE_URL_SIGNING_KEY", ""),
 		ImageURLTTL:        time.Duration(envInt("IMAGE_URL_TTL_MINUTES", 60)) * time.Minute,
-		NodeID:             envString("NODE_ID", ""),
-		NodeBaseURL:        envString("NODE_BASE_URL", ""),
-		ControlPlaneURL:    envString("CONTROL_PLANE_URL", ""),
+		NodeID:              envString("NODE_ID", ""),
+		NodeBaseURL:         envString("NODE_BASE_URL", ""),
+		ControlPlaneURL:     envString("CONTROL_PLANE_URL", ""),
+		ProvisionMetricsURL: envString("PROVISION_METRICS_URL", ""),
+		ProvisionAdminKey:   envString("PROVISION_ADMIN_KEY", ""),
 	}
 	if cfg.ImageURLSigningKey == "" {
 		cfg.ImageURLSigningKey = cfg.RustFSSecretKey

@@ -249,6 +249,8 @@ type ClusterNode struct {
 	CPUPercent    float64 `gorm:"not null;default:0"`
 	MemUsedMB     int     `gorm:"not null;default:0"`
 	MemTotalMB    int     `gorm:"not null;default:0"`
+	DiskUsedGB    int     `gorm:"not null;default:0"`
+	DiskTotalGB   int     `gorm:"not null;default:0"`
 	Version       string  `gorm:"size:64;not null;default:''"`
 	LastError     string  `gorm:"size:255;not null;default:''"`
 	LastSeen      time.Time

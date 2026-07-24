@@ -42,9 +42,17 @@ function fmtSince(s) {
   if (s < 3600) return Math.floor(s / 60) + '分前'
   return Math.floor(s / 3600) + '时前'
 }
+function fmtCpu(n) {
+  if (!n.cpu_percent) return '—'
+  return `${Math.round(n.cpu_percent)}%`
+}
 function fmtMem(n) {
   if (!n.mem_total_mb) return '—'
-  return `${n.mem_used_mb || 0}/${n.mem_total_mb} MB`
+  return `${(n.mem_used_mb / 1024).toFixed(1)}/${(n.mem_total_mb / 1024).toFixed(1)}G`
+}
+function fmtDisk(n) {
+  if (!n.disk_total_gb) return '—'
+  return `${n.disk_used_gb}/${n.disk_total_gb}G`
 }
 
 onMounted(() => {
@@ -121,15 +129,23 @@ onUnmounted(() => clearInterval(timer))
               </div>
               <div class="text-[10px] text-white/40">可用号</div>
             </div>
-            <div class="text-right shrink-0 w-14">
+            <div class="text-right shrink-0 w-12">
               <div class="text-sm tabular-nums">{{ n.in_flight }}</div>
               <div class="text-[10px] text-white/40">在途</div>
             </div>
-            <div class="text-right shrink-0 w-24 hidden sm:block">
+            <div class="text-right shrink-0 w-14 hidden md:block">
+              <div class="text-xs tabular-nums text-white/70">{{ fmtCpu(n) }}</div>
+              <div class="text-[10px] text-white/40">CPU</div>
+            </div>
+            <div class="text-right shrink-0 w-20 hidden sm:block">
               <div class="text-xs tabular-nums text-white/70">{{ fmtMem(n) }}</div>
               <div class="text-[10px] text-white/40">内存</div>
             </div>
-            <div class="text-right shrink-0 w-16">
+            <div class="text-right shrink-0 w-20 hidden md:block">
+              <div class="text-xs tabular-nums text-white/70">{{ fmtDisk(n) }}</div>
+              <div class="text-[10px] text-white/40">磁盘</div>
+            </div>
+            <div class="text-right shrink-0 w-14">
               <div class="text-xs tabular-nums text-white/60">{{ fmtSince(n.seconds_since_seen) }}</div>
               <div class="text-[10px] text-white/40">心跳</div>
             </div>

@@ -41,6 +41,8 @@ func (h *ClusterHandler) Report(c *gin.Context) {
 		CPUPercent:    report.CPUPercent,
 		MemUsedMB:     report.MemUsedMB,
 		MemTotalMB:    report.MemTotalMB,
+		DiskUsedGB:    report.DiskUsedGB,
+		DiskTotalGB:   report.DiskTotalGB,
 		Version:       report.Version,
 	}
 	if err := h.nodes.Upsert(c.Request.Context(), node); err != nil {
@@ -73,6 +75,8 @@ func (h *ClusterHandler) Nodes(c *gin.Context) {
 			"cpu_percent":        n.CPUPercent,
 			"mem_used_mb":        n.MemUsedMB,
 			"mem_total_mb":       n.MemTotalMB,
+			"disk_used_gb":       n.DiskUsedGB,
+			"disk_total_gb":      n.DiskTotalGB,
 			"version":            n.Version,
 			"last_error":         n.LastError,
 			"last_seen":          n.LastSeen,
