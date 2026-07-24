@@ -15,16 +15,20 @@ import (
 )
 
 type ClusterHandler struct {
-	nodes        *repo.ClusterNodeRepository
-	provisionKey string
-	client       *http.Client
+	nodes             *repo.ClusterNodeRepository
+	tokens            *repo.TokenRepository
+	provisionKey      string
+	clusterAdminToken string
+	client            *http.Client
 }
 
-func NewClusterHandler(nodes *repo.ClusterNodeRepository, provisionKey string) *ClusterHandler {
+func NewClusterHandler(nodes *repo.ClusterNodeRepository, tokens *repo.TokenRepository, provisionKey, clusterAdminToken string) *ClusterHandler {
 	return &ClusterHandler{
-		nodes:        nodes,
-		provisionKey: provisionKey,
-		client:       &http.Client{Timeout: 30 * time.Second},
+		nodes:             nodes,
+		tokens:            tokens,
+		provisionKey:      provisionKey,
+		clusterAdminToken: clusterAdminToken,
+		client:            &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -217,4 +221,108 @@ func (h *ClusterHandler) Rename(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// ===== node-local account API (machine token) — this backend's own token pool.
+// The panel reaches it on a node via the control plane's forward endpoints.
+
+// NodeAccounts — GET /admin/api/cluster/accounts?pool= (machine token). Lists
+// this backend's token accounts (value never returned) for the panel.
+func (h *ClusterHandler) NodeAccounts(c *gin.Context) {
+	items, err := h.tokens.List(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": "list failed"})
+		return
+	}
+	pool := strings.TrimSpace(c.Query("pool"))
+	out := make([]gin.H, 0, len(items))
+	for _, t := range items {
+		if pool != "" && t.Pool != pool {
+			continue
+		}
+		status := "正常"
+		switch {
+		case t.Dead:
+			status = "已死"
+		case t.ImageLimited:
+			status = "限流"
+		case t.Status != "active":
+			status = t.Status
+		}
+		out = append(out, gin.H{
+			"id": t.ID, "pool": t.Pool, "email": t.AccountEmail, "status": status,
+			"dead": t.Dead, "image_limited": t.ImageLimited,
+			"success": t.SuccessTotal, "fail": t.FailTotal, "last_used": t.LastUsedAt,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"items": out})
+}
+
+// NodeAccountsDelete — DELETE /admin/api/cluster/accounts {ids:[...]} (machine token).
+func (h *ClusterHandler) NodeAccountsDelete(c *gin.Context) {
+	var body struct {
+		IDs []string `json:"ids"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || len(body.IDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "ids required"})
+		return
+	}
+	n, err := h.tokens.DeleteByIDs(c.Request.Context(), body.IDs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": "delete failed"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "deleted": n})
+}
+
+// forwardToNodeBackend proxies to a node's OWN backend cluster API (bearer =
+// shared cluster admin token) — for panel actions needing node DB data (accounts)
+// which live on the backend, not the provisioner.
+func (h *ClusterHandler) forwardToNodeBackend(c *gin.Context, nodeID, method, path string, body []byte) {
+	node, err := h.nodes.Get(c.Request.Context(), strings.TrimSpace(nodeID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": "lookup failed"})
+		return
+	}
+	if node == nil || strings.TrimSpace(node.BaseURL) == "" {
+		c.JSON(http.StatusNotFound, gin.H{"detail": "node has no base_url"})
+		return
+	}
+	url := strings.TrimRight(strings.TrimSpace(node.BaseURL), "/") + path
+	var rd io.Reader
+	if len(body) > 0 {
+		rd = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(c.Request.Context(), method, url, rd)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "bad request"})
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+h.clusterAdminToken)
+	if rd != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := h.client.Do(req)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"detail": "node unreachable"})
+		return
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	c.Data(resp.StatusCode, "application/json", raw)
+}
+
+// NodeAccountsProxy — GET /admin/api/cluster-nodes/:id/accounts (admin session).
+func (h *ClusterHandler) NodeAccountsProxy(c *gin.Context) {
+	p := "/admin/api/cluster/accounts"
+	if pool := strings.TrimSpace(c.Query("pool")); pool != "" {
+		p += "?pool=" + pool
+	}
+	h.forwardToNodeBackend(c, c.Param("id"), http.MethodGet, p, nil)
+}
+
+// NodeAccountsRemoveProxy — DELETE /admin/api/cluster-nodes/:id/accounts (admin session).
+func (h *ClusterHandler) NodeAccountsRemoveProxy(c *gin.Context) {
+	body, _ := io.ReadAll(c.Request.Body)
+	h.forwardToNodeBackend(c, c.Param("id"), http.MethodDelete, "/admin/api/cluster/accounts", body)
 }

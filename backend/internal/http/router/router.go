@@ -121,6 +121,9 @@ func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.
 		clusterAdmin.GET("/orders", handlers.Payment.AdminOrders)
 		// Worker nodes push their status here (machine-to-machine).
 		clusterAdmin.POST("/nodes/report", handlers.Cluster.Report)
+		// A node's own token pool, read/deleted by the control plane's forward endpoints.
+		clusterAdmin.GET("/accounts", handlers.Cluster.NodeAccounts)
+		clusterAdmin.DELETE("/accounts", handlers.Cluster.NodeAccountsDelete)
 	}
 
 	authed := engine.Group("/admin/api")
@@ -167,6 +170,8 @@ func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.
 		authed.GET("/cluster-nodes", handlers.Cluster.Nodes)
 		authed.DELETE("/cluster-nodes/:id", handlers.Cluster.Remove)
 		authed.PATCH("/cluster-nodes/:id", handlers.Cluster.Rename)
+		authed.GET("/cluster-nodes/:id/accounts", handlers.Cluster.NodeAccountsProxy)
+		authed.DELETE("/cluster-nodes/:id/accounts", handlers.Cluster.NodeAccountsRemoveProxy)
 		authed.POST("/cluster/proxy", handlers.Cluster.Proxy)
 		authed.GET("/images", handlers.AdminRead.Images)
 		authed.DELETE("/images", handlers.AdminRead.DeleteImage)

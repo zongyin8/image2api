@@ -95,8 +95,23 @@ async function loadReg() {
 async function loadMailPool() {
   try { mailStats.value = await nodeProxy('GET', '/api/register/mail-pool/stats') } catch { mailStats.value = null }
 }
+const accounts = ref([])
+const acctLoading = ref(false)
+async function loadAccounts() {
+  acctLoading.value = true
+  try {
+    const r = await api('/cluster-nodes/' + encodeURIComponent(modalNode.value.node_id) + '/accounts?pool=chatgpt')
+    accounts.value = r.data?.items || []
+  } catch { accounts.value = [] }
+  acctLoading.value = false
+}
+async function delAccount(id) {
+  if (!window.confirm('确定删除该账号？')) return
+  await api('/cluster-nodes/' + encodeURIComponent(modalNode.value.node_id) + '/accounts', jsonBody('DELETE', { ids: [id] }))
+  loadAccounts()
+}
 function loadTab() {
-  if (modalTab.value === 'accounts') { loadReg(); loadMailPool() }
+  if (modalTab.value === 'accounts') { loadReg(); loadMailPool(); loadAccounts() }
   else loadReg()
 }
 function switchTab(t) { modalTab.value = t; loadTab() }
@@ -444,9 +459,24 @@ onUnmounted(() => { clearInterval(listTimer); stopPoll() })
               <div class="text-[11px] text-[color:var(--fg-3)] mb-1">邮箱号池(Hotmail/outlook)</div>
               <div class="text-sm tabular-nums text-[color:var(--fg)]">可用 {{ mailStats.pool_available ?? 0 }} / 总 {{ mailStats.pool_total ?? 0 }} · 已用 {{ mailStats.pool_used ?? 0 }}</div>
             </div>
-            <p class="text-[11px] text-[color:var(--fg-3)] mt-3 leading-relaxed">
-              该节点用低水位模式自动维持可用号(号被风控封了会自动补)。详细账号列表后续接入。
-            </p>
+            <div class="mt-4">
+              <div class="flex items-center justify-between mb-2">
+                <div class="text-xs font-medium text-[color:var(--fg-2)]">账号列表 <span class="text-[color:var(--fg-3)]">({{ accounts.length }})</span></div>
+                <button @click="loadAccounts" class="node-op">刷新</button>
+              </div>
+              <div v-if="acctLoading" class="text-center text-xs text-[color:var(--fg-3)] py-4">加载中…</div>
+              <div v-else-if="!accounts.length" class="text-center text-xs text-[color:var(--fg-3)] py-4">暂无账号</div>
+              <div v-else class="max-h-72 overflow-y-auto rounded-lg ring-1 ring-[color:var(--hairline)]">
+                <div v-for="a in accounts" :key="a.id"
+                     class="flex items-center gap-2 px-3 py-1.5 text-[11px] border-b border-[color:var(--hairline)] last:border-0 hover:bg-[color:var(--hover)]">
+                  <span class="w-12 shrink-0" :class="a.dead ? 'text-rose-500 dark:text-rose-300' : a.image_limited ? 'text-amber-500 dark:text-amber-300' : 'text-emerald-500 dark:text-emerald-300'">{{ a.status }}</span>
+                  <span class="flex-1 min-w-0 truncate font-mono text-[color:var(--fg-2)]">{{ a.email || a.id }}</span>
+                  <span class="shrink-0 tabular-nums text-[color:var(--fg-3)]">✓{{ a.success }} ✗{{ a.fail }}</span>
+                  <button @click="delAccount(a.id)" class="shrink-0 text-rose-400 hover:text-rose-500 px-1" title="删除账号">✕</button>
+                </div>
+              </div>
+              <p class="text-[11px] text-[color:var(--fg-3)] mt-2">号被风控封了低水位会自动补，一般不用手动删。</p>
+            </div>
           </div>
         </div>
       </div>
