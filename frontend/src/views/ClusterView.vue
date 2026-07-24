@@ -136,6 +136,7 @@ function openNode(node) {
   modalTab.value = 'register'
   reg.value = null; mailStats.value = null; err.value = ''
   importText.value = ''; importResult.value = ''; mailJsonMode.value = false
+  cfTopsText.value = ''; cfPrefixesText.value = DEFAULT_PREFIXES; cfShowRaw.value = false
   loadTab()
   loadMailPool()
   stopPoll()
@@ -200,6 +201,23 @@ const cfDomains = computed({
   get: () => (cfMail.value?.domain || []).join('\n'),
   set: (v) => { if (cfMail.value) cfMail.value.domain = v.split('\n').map((s) => s.trim()).filter(Boolean) },
 })
+// 顶级域名 + 前缀 → 自动拼 **.前缀.顶级域名
+const DEFAULT_PREFIXES = 'academy\nassoc\ncampus\ncenter\nclub\ncollege\ncompany\ncorp\nedu\ngov\ngroup\ninstitute\noffice\norg\nschool\nstudent\nteacher\nteam\nuni\nunion'
+const cfTopsText = ref('')
+const cfPrefixesText = ref('')
+const cfShowRaw = ref(false)
+function applyCfDomains() {
+  const tops = cfTopsText.value.split('\n').map((s) => s.trim()).filter(Boolean)
+  const prefixes = cfPrefixesText.value.split('\n').map((s) => s.trim()).filter(Boolean)
+  if (!tops.length) { err.value = '请先填顶级域名'; return }
+  const out = []
+  for (const t of tops) {
+    if (prefixes.length) { for (const p of prefixes) out.push(`**.${p}.${t}`) }
+    else out.push(`**.${t}`)
+  }
+  if (cfMail.value) cfMail.value.domain = out
+  err.value = `已生成 ${out.length} 个域名(记得点保存设置)`
+}
 const tmDomains = computed({
   get: () => (tmMail.value?.domain || []).join('\n'),
   set: (v) => { if (tmMail.value) tmMail.value.domain = v.split('\n').map((s) => s.trim()).filter(Boolean) },
@@ -417,7 +435,14 @@ onUnmounted(() => { clearInterval(listTimer); stopPoll() })
                   <template v-if="cfMail">
                     <label class="block mt-3"><span class="fld-l">API 地址</span><input v-model="cfMail.api_base" class="fld font-mono text-[11px]"></label>
                     <label class="block mt-3"><span class="fld-l">管理密码</span><input v-model="cfMail.admin_password" class="fld"></label>
-                    <label class="block mt-3"><span class="fld-l">域名(一行一个)</span><textarea v-model="cfDomains" rows="4" class="fld font-mono text-[11px]"></textarea></label>
+                    <label class="block mt-3"><span class="fld-l">顶级域名(一行一个,如 mdnqli.com)</span><textarea v-model="cfTopsText" rows="2" class="fld font-mono text-[11px]" placeholder="mdnqli.com&#10;2s21.cc"></textarea></label>
+                    <label class="block mt-3"><span class="fld-l">域名前缀(一行一个,所有顶级域名共用;自动拼成 **.前缀.顶级域名)</span><textarea v-model="cfPrefixesText" rows="4" class="fld font-mono text-[11px]"></textarea></label>
+                    <div class="flex items-center gap-2 mt-2 flex-wrap">
+                      <button type="button" @click="applyCfDomains" class="node-op-primary">生成域名列表</button>
+                      <span class="text-[11px] text-[color:var(--fg-3)]">当前 {{ (cfMail.domain || []).length }} 个域名</span>
+                      <button type="button" @click="cfShowRaw = !cfShowRaw" class="node-op">{{ cfShowRaw ? '收起' : '查看/编辑生成结果' }}</button>
+                    </div>
+                    <label v-if="cfShowRaw" class="block mt-2"><span class="fld-l">完整域名列表(可手动改)</span><textarea v-model="cfDomains" rows="5" class="fld font-mono text-[11px]"></textarea></label>
                   </template>
                   <p v-else class="text-[11px] text-[color:var(--fg-3)] mt-2">该节点未配置 Cloudflare 临时邮箱 provider。</p>
                 </template>
