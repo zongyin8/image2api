@@ -174,7 +174,7 @@ func NewApp(ctx context.Context) (*App, error) {
 		Payment:       handler.NewPaymentHandler(paymentSvc),
 		BannedWords:   handler.NewBannedWordsHandler(bannedWordRepo),
 		CreditLog:     handler.NewCreditLogHandler(creditLogSvc),
-		Cluster:       handler.NewClusterHandler(clusterNodeRepo, tokenRepo, cfg.ClusterProvisionKey, cfg.ClusterAdminToken),
+		Cluster:       handler.NewClusterHandler(clusterNodeRepo, tokenRepo, eventRepo, cfg.ClusterProvisionKey, cfg.ClusterAdminToken),
 	})
 
 	// Background self-healing sweep (quota recovery, cookie refresh, stale-pending

@@ -110,6 +110,21 @@ async function delAccount(id) {
   await api('/cluster-nodes/' + encodeURIComponent(modalNode.value.node_id) + '/accounts', jsonBody('DELETE', { ids: [id] }))
   loadAccounts()
 }
+// 邮箱 provider 全量编辑：可视化只覆盖 3 种主力，JSON 模式可编辑全部 8 种 provider
+const mailJsonMode = ref(false)
+const mailJsonText = ref('')
+function toggleMailJson() {
+  if (!mailJsonMode.value) {
+    mailJsonText.value = JSON.stringify(reg.value?.mail || {}, null, 2)
+    mailJsonMode.value = true
+  } else {
+    try {
+      reg.value.mail = JSON.parse(mailJsonText.value)
+      err.value = ''
+      mailJsonMode.value = false
+    } catch { err.value = '邮箱 JSON 格式错误，请检查' }
+  }
+}
 function loadTab() {
   if (modalTab.value === 'accounts') { loadReg(); loadMailPool(); loadAccounts() }
   else loadReg()
@@ -120,12 +135,13 @@ function openNode(node) {
   modalNode.value = node
   modalTab.value = 'register'
   reg.value = null; mailStats.value = null; err.value = ''
-  importText.value = ''; importResult.value = ''
+  importText.value = ''; importResult.value = ''; mailJsonMode.value = false
   loadTab()
   loadMailPool()
   stopPoll()
   pollTimer = setInterval(() => {
-    if (modalNode.value && (modalTab.value === 'register' || modalTab.value === 'log')) loadReg()
+    // 仅「注册日志」tab 轮询刷新;「注册设置」tab 用户在编辑表单,不能被覆盖
+    if (modalNode.value && modalTab.value === 'log') loadReg()
   }, 2000)
 }
 function closeModal() { modalNode.value = null; stopPoll() }
@@ -144,6 +160,9 @@ async function saveReg() {
       mode: reg.value.mode || 'low_watermark',
       proxy: reg.value.proxy || '',
       fixed_password: reg.value.fixed_password || '',
+    }
+    if (mailJsonMode.value) {
+      try { reg.value.mail = JSON.parse(mailJsonText.value) } catch { err.value = '邮箱 JSON 格式错误'; busy.value = false; return }
     }
     if (reg.value.mail) p.mail = reg.value.mail
     const d = await nodeProxy('POST', '/api/register', p)
@@ -374,7 +393,12 @@ onUnmounted(() => { clearInterval(listTimer); stopPoll() })
 
               <!-- 邮箱配置(收验证码) -->
               <div v-if="reg.mail" class="border-t border-[color:var(--hairline)] pt-4">
-                <div class="text-xs font-medium text-[color:var(--fg-2)] mb-2">邮箱配置(收验证码)</div>
+                <div class="flex items-center justify-between mb-2">
+                  <div class="text-xs font-medium text-[color:var(--fg-2)]">邮箱配置(收验证码)</div>
+                  <button type="button" @click="toggleMailJson" class="node-op">{{ mailJsonMode ? '← 可视化' : 'JSON 编辑(全部 provider)' }}</button>
+                </div>
+                <textarea v-if="mailJsonMode" v-model="mailJsonText" rows="12" class="fld font-mono text-[11px]" spellcheck="false"></textarea>
+                <template v-else>
                 <div class="grid grid-cols-2 gap-3 items-end">
                   <label class="block"><span class="fld-l">收码方式</span>
                     <select v-model="mailMode" class="fld">
@@ -417,6 +441,7 @@ onUnmounted(() => { clearInterval(listTimer); stopPoll() })
                     <button @click="doImport" :disabled="importBusy || !importText.trim()" class="node-op-primary">{{ importBusy ? '导入中…' : '导入号池' }}</button>
                     <span v-if="importResult" class="text-[11px] text-[color:var(--fg-3)]">{{ importResult }}</span>
                   </div>
+                </template>
                 </template>
               </div>
 
@@ -471,6 +496,7 @@ onUnmounted(() => { clearInterval(listTimer); stopPoll() })
                      class="flex items-center gap-2 px-3 py-1.5 text-[11px] border-b border-[color:var(--hairline)] last:border-0 hover:bg-[color:var(--hover)]">
                   <span class="w-12 shrink-0" :class="a.dead ? 'text-rose-500 dark:text-rose-300' : a.image_limited ? 'text-amber-500 dark:text-amber-300' : 'text-emerald-500 dark:text-emerald-300'">{{ a.status }}</span>
                   <span class="flex-1 min-w-0 truncate font-mono text-[color:var(--fg-2)]">{{ a.email || a.id }}</span>
+                  <span v-if="a.in_flight" class="shrink-0 tabular-nums text-violet-400" title="在途出图">▶{{ a.in_flight }}</span>
                   <span class="shrink-0 tabular-nums text-[color:var(--fg-3)]">✓{{ a.success }} ✗{{ a.fail }}</span>
                   <button @click="delAccount(a.id)" class="shrink-0 text-rose-400 hover:text-rose-500 px-1" title="删除账号">✕</button>
                 </div>

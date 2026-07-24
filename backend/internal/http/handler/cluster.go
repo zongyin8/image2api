@@ -17,15 +17,17 @@ import (
 type ClusterHandler struct {
 	nodes             *repo.ClusterNodeRepository
 	tokens            *repo.TokenRepository
+	events            *repo.EventRepository
 	provisionKey      string
 	clusterAdminToken string
 	client            *http.Client
 }
 
-func NewClusterHandler(nodes *repo.ClusterNodeRepository, tokens *repo.TokenRepository, provisionKey, clusterAdminToken string) *ClusterHandler {
+func NewClusterHandler(nodes *repo.ClusterNodeRepository, tokens *repo.TokenRepository, events *repo.EventRepository, provisionKey, clusterAdminToken string) *ClusterHandler {
 	return &ClusterHandler{
 		nodes:             nodes,
 		tokens:            tokens,
+		events:            events,
 		provisionKey:      provisionKey,
 		clusterAdminToken: clusterAdminToken,
 		client:            &http.Client{Timeout: 30 * time.Second},
@@ -235,6 +237,7 @@ func (h *ClusterHandler) NodeAccounts(c *gin.Context) {
 		return
 	}
 	pool := strings.TrimSpace(c.Query("pool"))
+	inflight, _ := h.events.InFlightByAccount(c.Request.Context())
 	out := make([]gin.H, 0, len(items))
 	for _, t := range items {
 		if pool != "" && t.Pool != pool {
@@ -251,7 +254,7 @@ func (h *ClusterHandler) NodeAccounts(c *gin.Context) {
 		}
 		out = append(out, gin.H{
 			"id": t.ID, "pool": t.Pool, "email": t.AccountEmail, "status": status,
-			"dead": t.Dead, "image_limited": t.ImageLimited,
+			"dead": t.Dead, "image_limited": t.ImageLimited, "in_flight": inflight[t.ID],
 			"success": t.SuccessTotal, "fail": t.FailTotal, "last_used": t.LastUsedAt,
 		})
 	}
