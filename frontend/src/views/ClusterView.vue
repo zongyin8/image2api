@@ -115,6 +115,7 @@ async function saveReg() {
       proxy: reg.value.proxy || '',
       fixed_password: reg.value.fixed_password || '',
     }
+    if (reg.value.mail) p.mail = reg.value.mail
     const d = await nodeProxy('POST', '/api/register', p)
     reg.value = d?.register || reg.value
     err.value = ''
@@ -129,6 +130,21 @@ async function regAction(action) {
 }
 
 const st = computed(() => reg.value?.stats || {})
+// 邮箱配置：从 mail.providers 里拎出 cloudflare / outlook 两个 provider 做可视化编辑
+const mailProviders = computed(() => reg.value?.mail?.providers || [])
+const cfMail = computed(() => mailProviders.value.find((p) => p.type === 'cloudflare_temp_email'))
+const olMail = computed(() => mailProviders.value.find((p) => p.type === 'outlook_oauth'))
+const mailMode = computed({
+  get: () => (olMail.value?.enable ? 'outlook' : 'cloudflare'),
+  set: (v) => {
+    if (cfMail.value) cfMail.value.enable = v === 'cloudflare'
+    if (olMail.value) olMail.value.enable = v === 'outlook'
+  },
+})
+const cfDomains = computed({
+  get: () => (cfMail.value?.domain || []).join('\n'),
+  set: (v) => { if (cfMail.value) cfMail.value.domain = v.split('\n').map((s) => s.trim()).filter(Boolean) },
+})
 function logColor(level) {
   if (level === 'red') return 'text-rose-500 dark:text-rose-300'
   if (level === 'green') return 'text-emerald-500 dark:text-emerald-300'
@@ -294,6 +310,30 @@ onUnmounted(() => { clearInterval(listTimer); stopPoll() })
               </div>
               <label class="block"><span class="fld-l">代理 URL</span><input v-model="reg.proxy" class="fld font-mono text-[11px]"></label>
               <label class="block"><span class="fld-l">固定密码(可选)</span><input v-model="reg.fixed_password" class="fld"></label>
+
+              <!-- 邮箱配置(收验证码) -->
+              <div v-if="reg.mail" class="border-t border-[color:var(--hairline)] pt-4">
+                <div class="text-xs font-medium text-[color:var(--fg-2)] mb-2">邮箱配置(收验证码)</div>
+                <div class="grid grid-cols-2 gap-3 items-end">
+                  <label class="block"><span class="fld-l">收码方式</span>
+                    <select v-model="mailMode" class="fld">
+                      <option value="cloudflare">Cloudflare 临时邮箱</option>
+                      <option value="outlook">Outlook/Hotmail 号池</option>
+                    </select>
+                  </label>
+                  <label class="flex items-center gap-2 pb-2 cursor-pointer">
+                    <input type="checkbox" v-model="reg.mail.use_proxy" class="accent-violet-500">
+                    <span class="text-xs text-[color:var(--fg-2)]">邮箱走代理</span>
+                  </label>
+                </div>
+                <template v-if="mailMode === 'cloudflare' && cfMail">
+                  <label class="block mt-3"><span class="fld-l">API 地址</span><input v-model="cfMail.api_base" class="fld font-mono text-[11px]"></label>
+                  <label class="block mt-3"><span class="fld-l">管理密码</span><input v-model="cfMail.admin_password" class="fld"></label>
+                  <label class="block mt-3"><span class="fld-l">域名(一行一个)</span><textarea v-model="cfDomains" rows="4" class="fld font-mono text-[11px]"></textarea></label>
+                </template>
+                <p v-else class="text-[11px] text-[color:var(--fg-3)] mt-2">用导入的 Hotmail/Outlook 号池收码(在「号池」tab 管理)。</p>
+              </div>
+
               <div class="flex justify-end">
                 <button @click="saveReg" :disabled="busy" class="node-op-primary">{{ busy ? '保存中…' : '保存设置' }}</button>
               </div>
