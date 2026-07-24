@@ -165,6 +165,7 @@ func New(cfg *config.Config, auth *service.AuthService, handlers Handlers) *gin.
 		authed.GET("/accounts/:pool/:id/email", handlers.ProviderAdmin.AccountEmail)
 		authed.GET("/providers", handlers.AdminRead.Providers)
 		authed.GET("/cluster-nodes", handlers.Cluster.Nodes)
+		authed.POST("/cluster/proxy", handlers.Cluster.Proxy)
 		authed.GET("/images", handlers.AdminRead.Images)
 		authed.DELETE("/images", handlers.AdminRead.DeleteImage)
 		authed.GET("/banned-words", handlers.BannedWords.List)

@@ -20,6 +20,8 @@ import (
 type NodeReport struct {
 	NodeID        string  `json:"node_id"`
 	BaseURL       string  `json:"base_url"`
+	IPAddr        string  `json:"ip_addr"`
+	ProvisionURL  string  `json:"provision_url"`
 	PoolAvailable int     `json:"pool_available"`
 	PoolTotal     int     `json:"pool_total"`
 	InFlight      int     `json:"in_flight"`
@@ -116,9 +118,11 @@ func (e *reportError) Error() string { return "control plane rejected report: " 
 // InFlight is the sum of in-progress jobs across accounts.
 func (r *ClusterReporter) collect(ctx context.Context) NodeReport {
 	report := NodeReport{
-		NodeID:  strings.TrimSpace(r.cfg.NodeID),
-		BaseURL: strings.TrimSpace(r.cfg.NodeBaseURL),
-		Version: "image2api",
+		NodeID:       strings.TrimSpace(r.cfg.NodeID),
+		BaseURL:      strings.TrimSpace(r.cfg.NodeBaseURL),
+		IPAddr:       strings.TrimSpace(r.cfg.NodeIP),
+		ProvisionURL: strings.TrimSpace(r.cfg.ProvisionProxyURL),
+		Version:      "image2api",
 	}
 	if tokens, err := r.tokens.List(ctx); err == nil {
 		for _, t := range tokens {

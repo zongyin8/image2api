@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"backend/internal/model"
@@ -27,11 +28,25 @@ func (r *ClusterNodeRepository) Upsert(ctx context.Context, node *model.ClusterN
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "node_id"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"base_url", "healthy", "pool_available", "pool_total", "in_flight",
+			"base_url", "ip_addr", "provision_url", "healthy", "pool_available", "pool_total", "in_flight",
 			"cpu_percent", "mem_used_mb", "mem_total_mb", "disk_used_gb", "disk_total_gb",
 			"version", "last_error", "last_seen", "updated_at",
 		}),
 	}).Create(node).Error
+}
+
+// Get returns a single node by id (nil, nil when absent) — used by the control
+// plane's management proxy to resolve a node's provisioner URL.
+func (r *ClusterNodeRepository) Get(ctx context.Context, nodeID string) (*model.ClusterNode, error) {
+	var item model.ClusterNode
+	err := r.db.WithContext(ctx).First(&item, "node_id = ?", nodeID).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &item, nil
 }
 
 // List returns all known nodes, freshest heartbeat first.

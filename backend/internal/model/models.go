@@ -242,6 +242,8 @@ type SiteSetting struct {
 type ClusterNode struct {
 	NodeID        string  `gorm:"primaryKey;size:128"`
 	BaseURL       string  `gorm:"size:255;index;not null;default:''"`
+	IPAddr        string  `gorm:"size:64;not null;default:''"`
+	ProvisionURL  string  `gorm:"size:255;not null;default:''"`
 	Healthy       bool    `gorm:"not null;default:true"`
 	PoolAvailable int     `gorm:"not null;default:0"`
 	PoolTotal     int     `gorm:"not null;default:0"`

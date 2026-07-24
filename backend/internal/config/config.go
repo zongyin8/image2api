@@ -42,6 +42,13 @@ type Config struct {
 	// fold them into its status report. Empty ⇒ no host metrics reported.
 	ProvisionMetricsURL string
 	ProvisionAdminKey   string
+	// NodeIP + ProvisionProxyURL are reported to the control plane so its panel can
+	// show the node's IP and proxy management calls to the node's provisioner.
+	NodeIP            string
+	ProvisionProxyURL string
+	// ClusterProvisionKey is the bearer the control plane injects when proxying a
+	// management call to a node's provisioner (all nodes share one provisioner key).
+	ClusterProvisionKey string
 }
 
 func Load() (*Config, error) {
@@ -84,6 +91,9 @@ func Load() (*Config, error) {
 		ControlPlaneURL:     envString("CONTROL_PLANE_URL", ""),
 		ProvisionMetricsURL: envString("PROVISION_METRICS_URL", ""),
 		ProvisionAdminKey:   envString("PROVISION_ADMIN_KEY", ""),
+		NodeIP:              envString("NODE_IP", ""),
+		ProvisionProxyURL:   envString("PROVISION_PROXY_URL", ""),
+		ClusterProvisionKey: envString("CLUSTER_PROVISION_KEY", ""),
 	}
 	if cfg.ImageURLSigningKey == "" {
 		cfg.ImageURLSigningKey = cfg.RustFSSecretKey
