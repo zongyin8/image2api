@@ -110,6 +110,12 @@ type V1Service struct {
 	// upstream gate (1+ jobs per account) and the per-user gate (画图台 + API key,
 	// capped by the user's concurrency group). Self-healing + fail-open.
 	conc *ConcurrencyService
+
+	// customDown is a per-custom-node temporary cooldown (accountID → time it
+	// becomes eligible again). A node that returns a transient upstream error is
+	// skipped for a short window so the load-aware dispatcher stops hammering a
+	// flapping/overloaded worker — mirrors the cluster router's TEMP_DOWN.
+	customDown sync.Map
 }
 
 // acctAcquire takes one per-account upstream slot (capped at max; 0/1 = single),
@@ -2169,14 +2175,76 @@ func (s *V1Service) customActive(ctx context.Context, modelID string) ([]model.T
 	if err != nil {
 		return nil, err
 	}
-	var active []model.TokenAccount
+	// Best-effort per-node in-flight counts drive load-aware dispatch; a nil map
+	// (query error) reads as 0 load everywhere and degrades gracefully to weight order.
+	inflight, _ := s.events.InFlightByAccount(ctx)
+	var active, cooling []model.TokenAccount
 	for _, item := range items {
-		if customAccountServes(item, modelID) {
-			active = append(active, item)
+		if !customAccountServes(item, modelID) {
+			continue
 		}
+		if s.isCustomDown(item.ID) {
+			cooling = append(cooling, item)
+			continue
+		}
+		active = append(active, item)
 	}
-	s.rotateRoundRobin("custom", active) // weight priority + round-robin within ties
+	// If every serving node is in cooldown, fall back to them rather than taking the
+	// model fully offline — a stale cooldown must not black-hole a model.
+	if len(active) == 0 {
+		active = cooling
+	}
+	s.orderCustomByLoad(active, inflight)
 	return active, nil
+}
+
+// orderCustomByLoad sorts custom nodes least-busy first (load ratio asc), then by
+// higher weight, then id — each request is dispatched to the most idle worker and
+// ties respect priority. Load ratio = in-flight jobs / the node's concurrency cap.
+func (s *V1Service) orderCustomByLoad(items []model.TokenAccount, inflight map[string]int64) {
+	if len(items) <= 1 {
+		return
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		li, lj := customLoadRatio(items[i], inflight), customLoadRatio(items[j], inflight)
+		if li != lj {
+			return li < lj
+		}
+		if items[i].Weight != items[j].Weight {
+			return items[i].Weight > items[j].Weight
+		}
+		return items[i].ID < items[j].ID
+	})
+}
+
+func customLoadRatio(item model.TokenAccount, inflight map[string]int64) float64 {
+	limit := accountConcurrency(item)
+	if limit < 1 {
+		limit = 1
+	}
+	return float64(inflight[item.ID]) / float64(limit)
+}
+
+const customNodeCooldown = 15 * time.Second
+
+// markCustomDown puts a custom node in a short cooldown after a transient failure,
+// so the dispatcher stops routing to a flapping/overloaded worker for a window.
+func (s *V1Service) markCustomDown(accountID string) {
+	s.customDown.Store(accountID, time.Now().Add(customNodeCooldown))
+}
+
+// isCustomDown reports whether a custom node is still inside its cooldown window.
+func (s *V1Service) isCustomDown(accountID string) bool {
+	v, ok := s.customDown.Load(accountID)
+	if !ok {
+		return false
+	}
+	until, _ := v.(time.Time)
+	if time.Now().Before(until) {
+		return true
+	}
+	s.customDown.Delete(accountID)
+	return false
 }
 
 // accountConcurrency is the per-account simultaneous-job cap. Custom accounts use
@@ -2284,6 +2352,7 @@ func (s *V1Service) generateCustomImage(ctx context.Context, eventID string, mod
 				s.markTokenFailure(ctx, "custom", token, "image", false, true)
 				return false, true
 			case errors.Is(genErr, custom.ErrTemporaryUpstream):
+				s.markCustomDown(token.ID) // 临时错误:短暂冷却这个节点,别继续往它派单
 				return false, true
 			default:
 				return false, false
@@ -2357,6 +2426,7 @@ func (s *V1Service) generateCustomVideo(ctx context.Context, eventID string, mod
 				s.markTokenFailure(ctx, "custom", token, "video", false, true)
 				return false, true
 			case errors.Is(genErr, custom.ErrTemporaryUpstream):
+				s.markCustomDown(token.ID) // 临时错误:短暂冷却这个节点,别继续往它派单
 				return false, true
 			default:
 				return false, false
