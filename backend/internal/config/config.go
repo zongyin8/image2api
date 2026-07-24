@@ -49,6 +49,11 @@ type Config struct {
 	// ClusterProvisionKey is the bearer the control plane injects when proxying a
 	// management call to a node's provisioner (all nodes share one provisioner key).
 	ClusterProvisionKey string
+	// UPSCALE (node-only): ESPCN super-res endpoint for 2K/4K. Empty on the control
+	// plane (control plane never upscales — nodes do).
+	UpscaleEndpoint string
+	UpscaleToken    string
+	UpscaleTimeout  time.Duration
 }
 
 func Load() (*Config, error) {
@@ -94,6 +99,9 @@ func Load() (*Config, error) {
 		NodeIP:              envString("NODE_IP", ""),
 		ProvisionProxyURL:   envString("PROVISION_PROXY_URL", ""),
 		ClusterProvisionKey: envString("CLUSTER_PROVISION_KEY", ""),
+		UpscaleEndpoint:     envString("UPSCALE_ENDPOINT", ""),
+		UpscaleToken:        envString("UPSCALE_TOKEN", ""),
+		UpscaleTimeout:      time.Duration(envInt("UPSCALE_TIMEOUT_SECS", 60)) * time.Second,
 	}
 	if cfg.ImageURLSigningKey == "" {
 		cfg.ImageURLSigningKey = cfg.RustFSSecretKey

@@ -122,6 +122,10 @@ type V1Service struct {
 	// accounts or a stale heartbeat. nil (control plane without the repo, or no
 	// reports) disables the filter entirely. Wired via SetClusterNodes.
 	clusterNodes *repo.ClusterNodeRepository
+
+	// upscale (node-only): ESPCN super-res for 2K/4K. nil on the control plane
+	// (no UPSCALE_ENDPOINT) → no upscaling. Wired via SetUpscale.
+	upscale *UpscaleService
 }
 
 // acctAcquire takes one per-account upstream slot (capped at max; 0/1 = single),
@@ -281,6 +285,31 @@ func (s *V1Service) SetBannedWords(r *repo.BannedWordRepository) { s.banned = r 
 // dispatch can skip nodes reporting no capacity. Leave unset on a control plane
 // that shouldn't filter (dispatch then behaves exactly as before).
 func (s *V1Service) SetClusterNodes(r *repo.ClusterNodeRepository) { s.clusterNodes = r }
+
+// SetUpscale wires the node-only ESPCN super-res service (nil on control plane).
+func (s *V1Service) SetUpscale(u *UpscaleService) { s.upscale = u }
+
+// maybeUpscale upscales a 1K base image to 2K(x2)/4K(x4) via ESPCN when a node
+// has the upscale service configured. Fail-safe: any error keeps the original.
+func (s *V1Service) maybeUpscale(ctx context.Context, data []byte, resolution string) []byte {
+	if s.upscale == nil || len(data) == 0 {
+		return data
+	}
+	scale := 0
+	switch strings.ToUpper(strings.TrimSpace(resolution)) {
+	case "2K":
+		scale = 2
+	case "4K":
+		scale = 4
+	default:
+		return data
+	}
+	out, err := s.upscale.Upscale(ctx, data, scale)
+	if err != nil || len(out) == 0 {
+		return data
+	}
+	return out
+}
 
 // checkBannedPrompt rejects the request when the prompt contains any banned
 // word (case-insensitive substring). A hit bumps the word's counter and the
@@ -588,6 +617,18 @@ func (s *V1Service) prepareImageExecutionOnce(ctx context.Context, principal *AP
 	// upload to RustFS, so there's no URL. The event is still logged (empty file)
 	// for usage; the customer logs page hides source="v1" rows.
 	noStore := source == "v1"
+	// signedStore marks an upscaled image that had to be stored: it's returned as a
+	// SIGNED /images URL so API/custom callers (no browser session) can still fetch it.
+	signedStore := false
+	// Node-only: with an upscale service, chatgpt's 2K/4K "resolution" is a 1K base
+	// that must be downloaded + ESPCN-upscaled + stored, so force the storage path
+	// (the URL pass-through path carries no bytes to upscale). The control plane has
+	// no upscale service, so this never fires there and pass-through is unchanged.
+	if s.upscale != nil && (resolution == "2K" || resolution == "4K") &&
+		s.effectiveImageProvider(genCtx, modelItem, resolution) == "chatgpt" {
+		noStore = false
+		signedStore = true
+	}
 	wantBase64 := strings.EqualFold(strings.TrimSpace(in.ResponseFormat), "b64_json")
 	urlOnly := noStore && !wantBase64
 	var fileURL, relativePath string
@@ -756,6 +797,9 @@ func (s *V1Service) prepareImageExecutionOnce(ctx context.Context, principal *AP
 			imageBytes = processed
 		}
 	}
+	// Node-only ESPCN super-res: upscale the 1K base to 2K/4K. Fail-safe — any
+	// error keeps the original bytes so a paid generation is never lost.
+	imageBytes = s.maybeUpscale(genCtx, imageBytes, resolution)
 	if !noStore {
 		// Upload to RustFS. On failure the generation fails and credits are
 		// refunded — we never fall back to local disk.
@@ -836,6 +880,16 @@ func (s *V1Service) prepareImageExecutionOnce(ctx context.Context, principal *AP
 			"charged":    price,
 			"credits":    principalCredits(principal),
 		}, nil
+	}
+	// Upscaled (API/custom) images are fetched without a browser session, so hand
+	// back a signed /images URL (Images.Serve verifies the sig).
+	if signedStore && relativePath != "" {
+		signed := SignStoredImageURL(relativePath, s.cfg.ImageURLSigningKey, s.cfg.ImageURLTTL)
+		if base := strings.TrimRight(strings.TrimSpace(in.BaseURL), "/"); base != "" {
+			fileURL = base + signed
+		} else {
+			fileURL = signed
+		}
 	}
 	return map[string]any{
 		"created":    time.Now().Unix(),

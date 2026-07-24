@@ -150,6 +150,9 @@ func NewApp(ctx context.Context) (*App, error) {
 	// control plane this repo carries node reports; on a lone node it's empty and
 	// the filter is a no-op.
 	v1Svc.SetClusterNodes(clusterNodeRepo)
+	// Node-only ESPCN super-res for 2K/4K (empty UPSCALE_ENDPOINT = disabled, e.g.
+	// on the control plane).
+	v1Svc.SetUpscale(service.NewUpscaleService(cfg.UpscaleEndpoint, cfg.UpscaleToken, cfg.UpscaleTimeout))
 	userGenSvc := service.NewUserGenerationService(v1Svc, eventRepo, userRepo, modelRepo)
 
 	captchaSvc := service.NewCaptchaService(rdb)
